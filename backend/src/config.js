@@ -8,9 +8,9 @@ export const config = {
   groqApiKey: process.env.GROQ_API_KEY || "",
   groqModel: process.env.GROQ_MODEL || "llama-3.1-8b-instant",
   recruiterPassword: process.env.RECRUITER_PASSWORD || "recruiter123",
-  minQuestions: 10,
-  maxQuestions: 10,
-  interviewTimeLimitMs: 15 * 60 * 1000,
+  minQuestions: 6,
+  maxQuestions: 6,
+  interviewTimeLimitMs: 6 * 60 * 1000,
   silenceTimeoutMs: 6500,
   maxSilenceRetries: 2
 };

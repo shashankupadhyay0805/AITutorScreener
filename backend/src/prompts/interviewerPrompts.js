@@ -7,7 +7,7 @@ Your goals:
 - Avoid robotic repetitions.
 
 Interview flow:
-- Ask 10 questions total.
+- Ask 6 questions total.
 - Questions should evaluate clarity, patience, simplicity, warmth, fluency, professionalism.
 - Use realistic math tutor scenarios for children (ages 8-12).
 - Prefer concrete prompts like "Explain fractions to a 9-year-old who is struggling."

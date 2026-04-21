@@ -241,13 +241,13 @@ export const processResponse = async (req, res, next) => {
     if (isTimeExpired && !step.endInterview) {
       await finalizeSessionEvaluation(session);
       session.evaluation.summary =
-        "Interview ended because the 15-minute time limit was reached before all answers were submitted.";
+        "Interview ended because the 6-minute time limit was reached before all answers were submitted.";
       session.evaluation.result = "fail";
       await session.save();
       return res.json({
         status: session.status,
         messageType: "completed",
-        aiText: "Time is up. The 15-minute interview window has ended.",
+        aiText: "Time is up. The 6-minute interview window has ended.",
         evaluation: session.evaluation,
         questionCount: session.questionCount,
         toxicCount: session.toxicCount,

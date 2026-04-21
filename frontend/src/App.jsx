@@ -45,7 +45,7 @@ const formatScore = (value) => {
 };
 
 export default function App() {
-  const INTERVIEW_LIMIT_MS = 15 * 60 * 1000;
+  const INTERVIEW_LIMIT_MS = 6 * 60 * 1000;
   const [theme, setTheme] = useState(() => localStorage.getItem("theme") || "light");
   const [candidateName, setCandidateName] = useState("");
   const [candidateEmail, setCandidateEmail] = useState("");
@@ -426,7 +426,7 @@ export default function App() {
               <span>Recording: {recording ? "On" : "Off"}</span>
             </div>
             <div className={`timer ${isTimeUp ? "expired" : ""}`}>
-              Time left: {formatRemainingTime(remainingMs)} / 15:00
+              Time left: {formatRemainingTime(remainingMs)} / 06:00
             </div>
 
             {!supported ? <p className="warning">Web Speech API is not supported in this browser.</p> : null}

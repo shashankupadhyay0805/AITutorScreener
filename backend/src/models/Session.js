@@ -29,6 +29,7 @@ const evaluationSchema = new mongoose.Schema(
     summary: { type: String, default: "" },
     strengths: { type: [String], default: [] },
     improvements: { type: [String], default: [] },
+    result: { type: String, enum: ["pass", "fail", "pending"], default: "pending" },
     evidence: {
       type: [
         {

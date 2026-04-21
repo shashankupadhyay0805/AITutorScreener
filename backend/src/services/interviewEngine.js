@@ -42,17 +42,20 @@ const applyBaselineOutcomeSummary = (session, toxicWordCount) => {
     session.evaluation.summary =
       `Candidate used inappropriate language. Regardless of other scores, the candidate did not pass the interview baseline.${attendanceNote}`;
     session.evaluation.flagged = true;
+    session.evaluation.result = "fail";
     return;
   }
 
-  if (allAboveBaseline) {
+  if (allAboveBaseline && attendedAllQuestions) {
     session.evaluation.summary =
-      `Candidate scored above the baseline of 5 in each metric and has passed the interview.${attendanceNote}`;
+      "Candidate scored above the baseline of 5 in each metric and has passed the interview.";
+    session.evaluation.result = "pass";
     return;
   }
 
   session.evaluation.summary =
     `Candidate scored below the baseline of 5 in one or more metrics and did not pass the interview.${attendanceNote}`;
+  session.evaluation.result = "fail";
 };
 
 const mapIntoBand = (value, minBand, maxBand) => {
@@ -62,6 +65,21 @@ const mapIntoBand = (value, minBand, maxBand) => {
   }
   const normalized = (Math.min(9, numeric) - 5) / 4;
   return clamp(minBand + normalized * (maxBand - minBand));
+};
+
+const applyMetricVariation = (scores, minBand, maxBand) => {
+  const offsets = {
+    clarity: 0.28,
+    patience: 0.1,
+    simplicity: -0.2,
+    warmth: 0.16,
+    fluency: -0.12,
+    professionalism: 0.06
+  };
+  Object.entries(offsets).forEach(([metric, offset]) => {
+    const next = clamp(Number(scores[metric]) + offset);
+    scores[metric] = clamp(Math.min(maxBand, Math.max(minBand, next)));
+  });
 };
 
 const needsClarification = ({ quality, irrelevant }) => {
@@ -82,18 +100,45 @@ const rebalanceFinalScores = (session) => {
     candidateAnswers.length > 0
       ? candidateAnswers.reduce((sum, entry) => sum + entry.text.trim().split(/\s+/).length, 0) / candidateAnswers.length
       : 0;
+  const effectiveQuestionCount = Number(session.questionCount) || 0;
+  const enoughCoverageForExcellent = candidateAnswers.length >= Math.max(4, Math.floor(effectiveQuestionCount * 0.8));
+  const enoughCoverageForPerfect = candidateAnswers.length >= Math.max(6, Math.floor(effectiveQuestionCount * 0.9));
+  const hasNoViolations = session.toxicCount === 0 && session.irrelevantCount === 0;
+  const perfectCandidate = hasNoViolations && enoughCoverageForPerfect && avgWords >= 26;
   const excellentCandidate =
-    session.toxicCount === 0 &&
-    session.irrelevantCount === 0 &&
-    candidateAnswers.length >= Math.max(3, Math.floor((session.questionCount || 0) * 0.7)) &&
+    hasNoViolations &&
+    enoughCoverageForExcellent &&
     avgWords >= 22;
 
-  const targetMin = excellentCandidate ? 8 : 7;
-  const targetMax = excellentCandidate ? 9 : 8;
+  const targetMin = perfectCandidate ? 8.4 : excellentCandidate ? 7.9 : 7.1;
+  const targetMax = perfectCandidate ? 9 : excellentCandidate ? 8.1 : 8;
   const metricNames = ["clarity", "patience", "simplicity", "warmth", "fluency", "professionalism"];
   metricNames.forEach((name) => {
     session.evaluation.scores[name] = mapIntoBand(session.evaluation.scores[name], targetMin, targetMax);
   });
+  applyMetricVariation(session.evaluation.scores, targetMin, targetMax);
+};
+
+const rebalanceLiveScores = (session) => {
+  const candidateAnswers = session.transcript.filter((entry) => entry.role === "candidate" && entry.text?.trim());
+  const avgWords =
+    candidateAnswers.length > 0
+      ? candidateAnswers.reduce((sum, entry) => sum + entry.text.trim().split(/\s+/).length, 0) / candidateAnswers.length
+      : 0;
+  const answeredCount = candidateAnswers.length;
+
+  const perfectCandidate = session.toxicCount === 0 && session.irrelevantCount === 0 && answeredCount >= 6 && avgWords >= 26;
+  const excellentCandidate =
+    session.toxicCount === 0 && session.irrelevantCount === 0 && answeredCount >= 3 && avgWords >= 21;
+  const decentCandidate =
+    session.toxicCount === 0 && session.irrelevantCount <= 1 && answeredCount >= 1 && avgWords >= 14;
+
+  const band = perfectCandidate ? [8.4, 9] : excellentCandidate ? [7.9, 8.1] : decentCandidate ? [7.1, 8] : [6, 6.9];
+  const metricNames = ["clarity", "patience", "simplicity", "warmth", "fluency", "professionalism"];
+  metricNames.forEach((name) => {
+    session.evaluation.scores[name] = mapIntoBand(session.evaluation.scores[name], band[0], band[1]);
+  });
+  applyMetricVariation(session.evaluation.scores, band[0], band[1]);
 };
 
 const rewardGoodResponse = (session) => {
@@ -107,14 +152,14 @@ const rewardGoodResponse = (session) => {
   };
 
   Object.entries(bonusMap).forEach(([category, bonus]) => {
-    session.evaluation.scores[category] = clamp(Math.min(8, session.evaluation.scores[category] + bonus));
+    session.evaluation.scores[category] = clamp(Math.min(9, session.evaluation.scores[category] + bonus));
   });
 };
 
 const applyParticipationProgress = (session) => {
   const categories = ["clarity", "patience", "simplicity", "warmth", "fluency", "professionalism"];
   categories.forEach((category) => {
-    session.evaluation.scores[category] = clamp(Math.min(8, session.evaluation.scores[category] + 0.03));
+    session.evaluation.scores[category] = clamp(Math.min(9, session.evaluation.scores[category] + 0.05));
   });
 };
 
@@ -347,4 +392,8 @@ export const registerBehaviorSignals = ({ session, quality, toxicity, irrelevant
   if (quality === "good" && !irrelevant) {
     rewardGoodResponse(session);
   }
+
+  // Keep real-time hints in a realistic band:
+  // ~6 for average, 7-8 decent, 8-9 excellent.
+  rebalanceLiveScores(session);
 };

@@ -1,7 +1,34 @@
 :root {
   font-family: Inter, Segoe UI, sans-serif;
-  color: #0f172a;
-  background: linear-gradient(135deg, #f0f9ff 0%, #eef2ff 45%, #f5f3ff 100%);
+  --text: #0f172a;
+  --bg: linear-gradient(rgba(248, 250, 252, 0.84), rgba(241, 245, 249, 0.84)), url("/bg-image.png");
+  --panel-bg: linear-gradient(145deg, rgba(255, 255, 255, 0.95), rgba(248, 250, 252, 0.92));
+  --panel-border: rgba(148, 163, 184, 0.22);
+  --muted: #334155;
+  --input-bg: #fff;
+  --meta-bg: linear-gradient(90deg, rgba(224, 242, 254, 0.55), rgba(224, 231, 255, 0.55));
+  --meta-border: rgba(148, 163, 184, 0.2);
+  --bubble-assistant-bg: linear-gradient(120deg, #ecfeff 0%, #dbeafe 100%);
+  --bubble-assistant-border: #bfdbfe;
+  --bubble-candidate-bg: linear-gradient(120deg, #f8fafc 0%, #e2e8f0 100%);
+  --bubble-candidate-border: #cbd5e1;
+  color: var(--text);
+  background: var(--bg);
+}
+
+:root[data-theme="dark"] {
+  --text: #e2e8f0;
+  --bg: linear-gradient(rgba(15, 23, 42, 0.86), rgba(17, 24, 39, 0.86)), url("/bg-image.png");
+  --panel-bg: linear-gradient(145deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.92));
+  --panel-border: rgba(148, 163, 184, 0.35);
+  --muted: #cbd5e1;
+  --input-bg: #0f172a;
+  --meta-bg: linear-gradient(90deg, rgba(30, 41, 59, 0.85), rgba(51, 65, 85, 0.85));
+  --meta-border: rgba(148, 163, 184, 0.35);
+  --bubble-assistant-bg: linear-gradient(120deg, #1e293b 0%, #334155 100%);
+  --bubble-assistant-border: #475569;
+  --bubble-candidate-bg: linear-gradient(120deg, #0f172a 0%, #1e293b 100%);
+  --bubble-candidate-border: #334155;
 }
 
 * {
@@ -11,21 +38,25 @@
 body {
   margin: 0;
   min-height: 100vh;
-  background: linear-gradient(135deg, #f0f9ff 0%, #eef2ff 45%, #f5f3ff 100%);
-  color: #0f172a;
+  background: var(--bg);
+  background-size: cover;
+  background-position: center;
+  background-attachment: fixed;
+  background-repeat: no-repeat;
+  color: var(--text);
 }
 
 .page {
   max-width: 1040px;
   margin: 0 auto;
-  padding: 28px 20px 36px;
+  padding: 34px 20px 44px;
   display: grid;
-  gap: 20px;
+  gap: 22px;
 }
 
 .hero h1 {
   margin: 0;
-  font-size: clamp(2rem, 3vw, 2.8rem);
+  font-size: clamp(2.2rem, 3.3vw, 3rem);
   font-weight: 800;
   letter-spacing: -0.02em;
   background: linear-gradient(90deg, #0f766e, #2563eb, #7c3aed);
@@ -35,18 +66,25 @@ body {
 }
 
 .hero p {
-  margin: 10px 0 0;
+  margin: 12px 0 0;
   color: #334155;
-  font-size: 1.05rem;
+  font-size: 1.08rem;
+  max-width: 760px;
 }
 
 .panel {
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.95), rgba(248, 250, 252, 0.92));
-  border: 1px solid rgba(148, 163, 184, 0.22);
-  border-radius: 16px;
-  padding: 18px;
-  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
-  backdrop-filter: blur(4px);
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 18px;
+  padding: 20px;
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.12);
+  backdrop-filter: blur(8px);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.panel:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.14);
 }
 
 .controls {
@@ -75,7 +113,8 @@ body {
   border-radius: 10px;
   padding: 10px 12px;
   font-size: 14px;
-  background: #fff;
+  background: var(--input-bg);
+  color: var(--text);
 }
 
 .text-fallback {
@@ -86,7 +125,7 @@ body {
 .text-fallback label {
   font-size: 13px;
   font-weight: 600;
-  color: #334155;
+  color: var(--muted);
 }
 
 .text-fallback textarea {
@@ -96,18 +135,19 @@ body {
   padding: 10px 12px;
   font-size: 14px;
   font-family: inherit;
-  background: #fff;
+  background: var(--input-bg);
+  color: var(--text);
   resize: vertical;
 }
 
 button {
   border: none;
   border-radius: 10px;
-  padding: 11px 16px;
+  padding: 12px 17px;
   cursor: pointer;
   font-weight: 700;
   letter-spacing: 0.01em;
-  transition: transform 0.15s ease, box-shadow 0.2s ease, filter 0.2s ease;
+  transition: transform 0.15s ease, box-shadow 0.2s ease, filter 0.2s ease, opacity 0.2s ease;
 }
 
 button:hover:not(:disabled) {
@@ -118,13 +158,13 @@ button:hover:not(:disabled) {
 .primary {
   background: linear-gradient(90deg, #0f766e 0%, #14b8a6 100%);
   color: white;
-  box-shadow: 0 8px 18px rgba(20, 184, 166, 0.28);
+  box-shadow: 0 10px 24px rgba(20, 184, 166, 0.32);
 }
 
 .secondary {
   background: linear-gradient(90deg, #2563eb 0%, #7c3aed 100%);
   color: white;
-  box-shadow: 0 8px 18px rgba(59, 130, 246, 0.25);
+  box-shadow: 0 10px 24px rgba(59, 130, 246, 0.3);
 }
 
 button:disabled {
@@ -139,19 +179,19 @@ button:disabled {
   gap: 16px;
   flex-wrap: wrap;
   font-size: 14px;
-  color: #1e293b;
-  background: linear-gradient(90deg, rgba(224, 242, 254, 0.55), rgba(224, 231, 255, 0.55));
-  border: 1px solid rgba(148, 163, 184, 0.2);
-  border-radius: 10px;
-  padding: 8px 10px;
+  color: var(--text);
+  background: var(--meta-bg);
+  border: 1px solid var(--meta-border);
+  border-radius: 12px;
+  padding: 9px 11px;
 }
 
 .timer {
   font-size: 14px;
   font-weight: 700;
-  color: #0f172a;
-  background: linear-gradient(90deg, rgba(224, 242, 254, 0.55), rgba(224, 231, 255, 0.55));
-  border: 1px solid rgba(148, 163, 184, 0.2);
+  color: var(--text);
+  background: var(--meta-bg);
+  border: 1px solid var(--meta-border);
   border-radius: 10px;
   padding: 8px 10px;
 }
@@ -165,9 +205,18 @@ button:disabled {
 .chat-timeline {
   display: grid;
   gap: 12px;
-  max-height: 380px;
+  max-height: 420px;
   overflow: auto;
-  padding-right: 4px;
+  padding-right: 6px;
+}
+
+.chat-timeline::-webkit-scrollbar {
+  width: 8px;
+}
+
+.chat-timeline::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.45);
+  border-radius: 10px;
 }
 
 audio {
@@ -175,26 +224,26 @@ audio {
 }
 
 .bubble {
-  padding: 12px;
-  border-radius: 12px;
-  box-shadow: 0 8px 16px rgba(15, 23, 42, 0.06);
+  padding: 14px;
+  border-radius: 14px;
+  box-shadow: 0 9px 18px rgba(15, 23, 42, 0.08);
 }
 
 .bubble-label {
   font-size: 12px;
   margin-bottom: 6px;
-  color: #334155;
+  color: var(--muted);
   font-weight: 600;
 }
 
 .bubble.assistant {
-  background: linear-gradient(120deg, #ecfeff 0%, #dbeafe 100%);
-  border: 1px solid #bfdbfe;
+  background: var(--bubble-assistant-bg);
+  border: 1px solid var(--bubble-assistant-border);
 }
 
 .bubble.candidate {
-  background: linear-gradient(120deg, #f8fafc 0%, #e2e8f0 100%);
-  border: 1px solid #cbd5e1;
+  background: var(--bubble-candidate-bg);
+  border: 1px solid var(--bubble-candidate-border);
 }
 
 .warning {
@@ -210,10 +259,10 @@ audio {
 
 .evaluation-card {
   background: linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(241, 245, 249, 0.92));
-  border-radius: 16px;
-  padding: 18px;
+  border-radius: 18px;
+  padding: 20px;
   border: 1px solid rgba(148, 163, 184, 0.22);
-  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.12);
 }
 
 .score-grid {
@@ -224,9 +273,14 @@ audio {
 
 .score-item {
   border: 1px solid rgba(148, 163, 184, 0.35);
-  border-radius: 10px;
-  padding: 10px;
+  border-radius: 12px;
+  padding: 12px;
   background: linear-gradient(125deg, #ffffff 0%, #f8fafc 100%);
+  transition: transform 0.2s ease;
+}
+
+.score-item:hover {
+  transform: translateY(-1px);
 }
 
 .score-label {
@@ -260,7 +314,7 @@ audio {
 table {
   width: 100%;
   border-collapse: collapse;
-  border-radius: 10px;
+  border-radius: 12px;
   overflow: hidden;
 }
 
@@ -268,7 +322,7 @@ th,
 td {
   border-bottom: 1px solid #e2e8f0;
   text-align: left;
-  padding: 10px;
+  padding: 11px;
   font-size: 14px;
 }
 

@@ -116,7 +116,7 @@ export const startSession = async (req, res, next) => {
 
 export const processResponse = async (req, res, next) => {
   try {
-    const { sessionId, transcript, transcriptionConfidence = 1, audioBase64 = "" } = req.body;
+    const { sessionId, transcript, transcriptionConfidence = 1, audioBase64 = "", remainingMs } = req.body;
 
     if (!sessionId) {
       return res.status(400).json({ error: "sessionId is required." });
@@ -134,25 +134,6 @@ export const processResponse = async (req, res, next) => {
     const normalizedMaxQuestions = Math.max(config.minQuestions, Number(session.maxQuestions) || 0);
     if (session.maxQuestions !== normalizedMaxQuestions) {
       session.maxQuestions = normalizedMaxQuestions;
-    }
-
-    const startedAtMs = new Date(session.createdAt).getTime();
-    const nowMs = Date.now();
-    const isTimeExpired = nowMs - startedAtMs >= config.interviewTimeLimitMs;
-    if (isTimeExpired) {
-      await finalizeSessionEvaluation(session);
-      session.evaluation.summary =
-        "Interview ended because the 15-minute time limit was reached before all answers were submitted.";
-      await session.save();
-      return res.json({
-        status: session.status,
-        messageType: "completed",
-        aiText: "Time is up. The 15-minute interview window has ended.",
-        evaluation: session.evaluation,
-        questionCount: session.questionCount,
-        toxicCount: session.toxicCount,
-        irrelevantCount: session.irrelevantCount
-      });
     }
 
     const text = (transcript || "").trim();
@@ -250,6 +231,29 @@ export const processResponse = async (req, res, next) => {
       quality: classification.quality,
       irrelevant: classification.irrelevant
     });
+
+    const startedAtMs = new Date(session.createdAt).getTime();
+    const nowMs = Date.now();
+    const hasClientTimer = Number.isFinite(Number(remainingMs));
+    const isTimeExpiredByClient = hasClientTimer ? Number(remainingMs) <= 0 : false;
+    const isTimeExpiredByServer = nowMs - startedAtMs >= config.interviewTimeLimitMs;
+    const isTimeExpired = hasClientTimer ? isTimeExpiredByClient : isTimeExpiredByServer;
+    if (isTimeExpired && !step.endInterview) {
+      await finalizeSessionEvaluation(session);
+      session.evaluation.summary =
+        "Interview ended because the 15-minute time limit was reached before all answers were submitted.";
+      session.evaluation.result = "fail";
+      await session.save();
+      return res.json({
+        status: session.status,
+        messageType: "completed",
+        aiText: "Time is up. The 15-minute interview window has ended.",
+        evaluation: session.evaluation,
+        questionCount: session.questionCount,
+        toxicCount: session.toxicCount,
+        irrelevantCount: session.irrelevantCount
+      });
+    }
 
     if (step.endInterview) {
       await finalizeSessionEvaluation(session);
@@ -352,6 +356,7 @@ export const listSessions = async (_req, res, next) => {
       toxicCount: session.toxicCount,
       irrelevantCount: session.irrelevantCount,
       flagged: Boolean(session.evaluation?.flagged),
+      result: session.evaluation?.result || "pending",
       summary: session.evaluation?.summary || "",
       scores: session.evaluation?.scores || null
     }));
@@ -387,6 +392,7 @@ export const getSessionDetails = async (req, res, next) => {
         irrelevantCount: session.irrelevantCount,
         currentQuestion: session.currentQuestion,
         flagged: Boolean(session.evaluation?.flagged),
+        result: session.evaluation?.result || "pending",
         evaluation: session.evaluation || null,
         violations: session.violations || [],
         transcript: session.transcript || []

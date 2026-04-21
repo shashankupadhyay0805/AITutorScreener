@@ -46,6 +46,7 @@ const formatScore = (value) => {
 
 export default function App() {
   const INTERVIEW_LIMIT_MS = 15 * 60 * 1000;
+  const [theme, setTheme] = useState(() => localStorage.getItem("theme") || "light");
   const [candidateName, setCandidateName] = useState("");
   const [candidateEmail, setCandidateEmail] = useState("");
   const [candidateReady, setCandidateReady] = useState(false);
@@ -66,7 +67,6 @@ export default function App() {
   const [recruiterAuthenticated, setRecruiterAuthenticated] = useState(false);
   const [micFallbackEnabled, setMicFallbackEnabled] = useState(false);
   const [textFallbackAnswer, setTextFallbackAnswer] = useState("");
-  const [interviewStartedAtMs, setInterviewStartedAtMs] = useState(0);
   const [remainingMs, setRemainingMs] = useState(INTERVIEW_LIMIT_MS);
 
   const { supported, listening, interim, error, listenOnce, speakText } = useSpeechInterview({
@@ -128,7 +128,6 @@ export default function App() {
       setMessages([]);
       setTextFallbackAnswer("");
       setMicFallbackEnabled(false);
-      setInterviewStartedAtMs(0);
       setRemainingMs(INTERVIEW_LIMIT_MS);
       setStatus("starting");
 
@@ -137,8 +136,6 @@ export default function App() {
       setQuestionCount(data.questionCount || 1);
       setCandidateReady(true);
       setView("interview");
-      const startedAt = Date.now();
-      setInterviewStartedAtMs(startedAt);
       setRemainingMs(INTERVIEW_LIMIT_MS);
 
       appendMessage("assistant", data.question);
@@ -188,7 +185,8 @@ export default function App() {
         sessionId,
         transcript,
         transcriptionConfidence: heard.confidence,
-        audioBase64
+        audioBase64,
+        remainingMs
       });
 
       if (response.aiText) {
@@ -199,6 +197,9 @@ export default function App() {
       }
 
       if (response.messageType === "completed") {
+        if ((response.aiText || "").toLowerCase().includes("time is up")) {
+          setRemainingMs(0);
+        }
         setEvaluation(response.evaluation);
         setStatus("completed");
       } else {
@@ -236,7 +237,8 @@ export default function App() {
         sessionId,
         transcript,
         transcriptionConfidence: 1,
-        audioBase64: ""
+        audioBase64: "",
+        remainingMs
       });
 
       if (response.aiText) {
@@ -248,6 +250,9 @@ export default function App() {
 
       setTextFallbackAnswer("");
       if (response.messageType === "completed") {
+        if ((response.aiText || "").toLowerCase().includes("time is up")) {
+          setRemainingMs(0);
+        }
         setEvaluation(response.evaluation);
         setStatus("completed");
       } else {
@@ -319,22 +324,26 @@ export default function App() {
     setBackendError("");
   };
 
+  const toggleTheme = () => {
+    setTheme((prev) => (prev === "light" ? "dark" : "light"));
+  };
+
   const isDashboardView = view === "dashboard" || view === "dashboard-detail";
 
   useEffect(() => {
-    if (!interviewStartedAtMs || status === "completed") {
+    if (!sessionId || status === "completed" || status === "idle" || status === "starting") {
       return;
     }
-
-    const tick = () => {
-      const elapsed = Date.now() - interviewStartedAtMs;
-      setRemainingMs(Math.max(0, INTERVIEW_LIMIT_MS - elapsed));
-    };
-
-    tick();
-    const timer = setInterval(tick, 1000);
+    const timer = setInterval(() => {
+      setRemainingMs((prev) => {
+        if (status === "ai_speaking") {
+          return prev;
+        }
+        return Math.max(0, prev - 1000);
+      });
+    }, 1000);
     return () => clearInterval(timer);
-  }, [interviewStartedAtMs, status]);
+  }, [sessionId, status]);
 
   useEffect(() => {
     if (!recruiterAuthenticated) {
@@ -342,6 +351,11 @@ export default function App() {
     }
     loadDashboard();
   }, [recruiterAuthenticated]);
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("theme", theme);
+  }, [theme]);
 
   return (
     <main className="page">
@@ -361,6 +375,9 @@ export default function App() {
             onClick={openRecruiterDashboard}
           >
             Recruiter Dashboard
+          </button>
+          <button className="secondary" type="button" onClick={toggleTheme}>
+            {theme === "light" ? "Dark Mode" : "Light Mode"}
           </button>
         </div>
       </section>
@@ -498,6 +515,7 @@ export default function App() {
                   <th>Name</th>
                   <th>Email</th>
                   <th>Status</th>
+                  <th>Remark</th>
                   <th>Created</th>
                   <th>Questions</th>
                   <th>Toxic</th>
@@ -512,6 +530,7 @@ export default function App() {
                     <td>{row.candidateName || "-"}</td>
                     <td>{row.candidateEmail || "-"}</td>
                     <td>{row.status}</td>
+                    <td>{(row.result || "pending").toUpperCase()}</td>
                     <td>{new Date(row.createdAt).toLocaleString()}</td>
                     <td>{row.questionCount}</td>
                     <td>{row.toxicCount}</td>
@@ -545,6 +564,7 @@ export default function App() {
                 <span>Name: {selectedSession.candidate?.name || "-"}</span>
                 <span>Email: {selectedSession.candidate?.email || "-"}</span>
                 <span>Status: {selectedSession.status}</span>
+                <span>Remark: {(selectedSession.result || selectedSession.evaluation?.result || "pending").toUpperCase()}</span>
                 <span>Created: {new Date(selectedSession.createdAt).toLocaleString()}</span>
                 <span>Updated: {new Date(selectedSession.updatedAt).toLocaleString()}</span>
                 <span>

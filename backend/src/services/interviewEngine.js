@@ -98,12 +98,12 @@ const rebalanceFinalScores = (session) => {
   // Never inflate scores for interviews with inappropriate language.
   if (session.toxicCount > 0) {
     const scores = session.evaluation.scores || {};
-    scores.clarity = clamp(Math.min(Number(scores.clarity) || 5, 5.5));
-    scores.patience = clamp(Math.min(Number(scores.patience) || 5, 5.5));
-    scores.simplicity = clamp(Math.min(Number(scores.simplicity) || 5, 5.5));
-    scores.warmth = clamp(Math.min(Number(scores.warmth) || 5, 5.5));
-    scores.fluency = clamp(Math.min(Number(scores.fluency) || 5, 5.5));
-    scores.professionalism = clamp(Math.min(Number(scores.professionalism) || 5, 3.5));
+    scores.clarity = clamp(Math.min(Number(scores.clarity) || 3, 3));
+    scores.patience = clamp(Math.min(Number(scores.patience) || 3, 3));
+    scores.simplicity = clamp(Math.min(Number(scores.simplicity) || 3, 3));
+    scores.warmth = clamp(Math.min(Number(scores.warmth) || 3, 3));
+    scores.fluency = clamp(Math.min(Number(scores.fluency) || 3, 3));
+    scores.professionalism = clamp(Math.min(Number(scores.professionalism) || 2.5, 2.5));
     session.evaluation.scores = scores;
     return;
   }

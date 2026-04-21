@@ -1,10 +1,13 @@
 export const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api";
 
 const request = async (path, options = {}) => {
+  const headers = {
+    "Content-Type": "application/json",
+    ...(options.headers || {})
+  };
+
   const response = await fetch(`${API_BASE}${path}`, {
-    headers: {
-      "Content-Type": "application/json"
-    },
+    headers,
     ...options
   });
 
@@ -31,6 +34,16 @@ export const processResponseApi = (payload) =>
 
 export const fetchEvaluationApi = (sessionId) => request(`/evaluation/${sessionId}`);
 
-export const listSessionsApi = () => request("/sessions");
+export const listSessionsApi = (recruiterPassword) =>
+  request("/sessions", {
+    headers: {
+      "x-recruiter-password": recruiterPassword
+    }
+  });
 
-export const getSessionDetailsApi = (sessionId) => request(`/sessions/${sessionId}`);
+export const getSessionDetailsApi = (sessionId, recruiterPassword) =>
+  request(`/sessions/${sessionId}`, {
+    headers: {
+      "x-recruiter-password": recruiterPassword
+    }
+  });

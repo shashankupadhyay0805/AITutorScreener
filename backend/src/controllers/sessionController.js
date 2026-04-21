@@ -17,6 +17,38 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const uploadsDir = path.resolve(__dirname, "../../uploads");
 
+const mathSeedPattern =
+  /\b(fraction|fractions|multiply|multiplication|times table|division|decimal|decimals|equation|equations|algebra|geometry|arithmetic)\b/i;
+const coreMathQuestionIndices = [0, 1, 2, 3, 4];
+
+const shuffleIndices = (length) => {
+  const indices = Array.from({ length }, (_, idx) => idx);
+  for (let i = indices.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [indices[i], indices[j]] = [indices[j], indices[i]];
+  }
+  return indices;
+};
+
+const buildMathFirstSeedOrder = () => {
+  const allIndices = Array.from({ length: seedQuestions.length }, (_, idx) => idx);
+  const guaranteedMathIndices = coreMathQuestionIndices.filter(
+    (idx) => idx < seedQuestions.length && mathSeedPattern.test(seedQuestions[idx])
+  );
+  const dynamicMathIndices = allIndices.filter(
+    (idx) => !guaranteedMathIndices.includes(idx) && mathSeedPattern.test(seedQuestions[idx])
+  );
+  const nonMathIndices = allIndices.filter((idx) => !guaranteedMathIndices.includes(idx) && !dynamicMathIndices.includes(idx));
+  const safeMathIndices = guaranteedMathIndices.length ? guaranteedMathIndices : [0, 1, 2, 3, 4].filter((idx) => idx < seedQuestions.length);
+  const shuffledMath = shuffleIndices(dynamicMathIndices.length).map((idx) => dynamicMathIndices[idx]);
+  const shuffledNonMath = shuffleIndices(nonMathIndices.length).map((idx) => nonMathIndices[idx]);
+  const orderedGuaranteedMath = shuffleIndices(safeMathIndices.length).map((idx) => safeMathIndices[idx]);
+  const orderedMath = safeMathIndices.length
+    ? [...orderedGuaranteedMath, ...shuffledMath]
+    : shuffleIndices(safeMathIndices.length).map((idx) => safeMathIndices[idx]);
+  return [...orderedMath, ...shuffledNonMath];
+};
+
 const saveCandidateAudio = async ({ sessionId, audioBase64 }) => {
   if (!audioBase64 || typeof audioBase64 !== "string") {
     return "";
@@ -56,11 +88,16 @@ export const startSession = async (req, res, next) => {
       return res.status(400).json({ error: "Please provide a valid email address." });
     }
 
-    const firstQuestion = seedQuestions[0];
+    // Keep interviews mostly math-focused and guarantee a math first question.
+    const seedQuestionOrder = buildMathFirstSeedOrder();
+    const firstQuestionIndex = seedQuestionOrder[0] ?? 0;
+    const firstQuestion = seedQuestions[firstQuestionIndex];
     const session = await Session.create({
       candidate: { name, email },
       questionCount: 1,
-      maxQuestions: 5,
+      maxQuestions: config.maxQuestions,
+      seedQuestionOrder,
+      seedQuestionCursor: 1,
       followUpCountForCurrentQuestion: 0,
       currentQuestion: firstQuestion,
       transcript: [{ role: "assistant", text: firstQuestion }]
@@ -92,6 +129,30 @@ export const processResponse = async (req, res, next) => {
 
     if (session.status === "completed") {
       return res.status(400).json({ error: "Session already completed." });
+    }
+
+    const normalizedMaxQuestions = Math.max(config.minQuestions, Number(session.maxQuestions) || 0);
+    if (session.maxQuestions !== normalizedMaxQuestions) {
+      session.maxQuestions = normalizedMaxQuestions;
+    }
+
+    const startedAtMs = new Date(session.createdAt).getTime();
+    const nowMs = Date.now();
+    const isTimeExpired = nowMs - startedAtMs >= config.interviewTimeLimitMs;
+    if (isTimeExpired) {
+      await finalizeSessionEvaluation(session);
+      session.evaluation.summary =
+        "Interview ended because the 15-minute time limit was reached before all answers were submitted.";
+      await session.save();
+      return res.json({
+        status: session.status,
+        messageType: "completed",
+        aiText: "Time is up. The 15-minute interview window has ended.",
+        evaluation: session.evaluation,
+        questionCount: session.questionCount,
+        toxicCount: session.toxicCount,
+        irrelevantCount: session.irrelevantCount
+      });
     }
 
     const text = (transcript || "").trim();
@@ -187,7 +248,6 @@ export const processResponse = async (req, res, next) => {
       session,
       latestResponse: text,
       quality: classification.quality,
-      toxicity: classification.toxicity,
       irrelevant: classification.irrelevant
     });
 
@@ -212,6 +272,12 @@ export const processResponse = async (req, res, next) => {
 
     if (step.countsAsQuestion !== false) {
       session.questionCount += 1;
+      if (Array.isArray(session.seedQuestionOrder) && session.seedQuestionOrder.length > 0) {
+        session.seedQuestionCursor = Math.min(
+          Number(session.seedQuestionCursor || 0) + 1,
+          session.seedQuestionOrder.length
+        );
+      }
     }
     if (typeof step.nextFollowUpCount === "number") {
       session.followUpCountForCurrentQuestion = step.nextFollowUpCount;

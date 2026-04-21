@@ -56,6 +56,8 @@ const sessionSchema = new mongoose.Schema(
     },
     questionCount: { type: Number, default: 0 },
     maxQuestions: { type: Number, default: 5 },
+    seedQuestionOrder: { type: [Number], default: [] },
+    seedQuestionCursor: { type: Number, default: 0 },
     followUpCountForCurrentQuestion: { type: Number, default: 0 },
     silenceRetries: { type: Number, default: 0 },
     toxicCount: { type: Number, default: 0 },

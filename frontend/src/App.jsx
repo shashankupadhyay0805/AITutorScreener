@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import ChatTimeline from "./components/ChatTimeline";
 import EvaluationCard from "./components/EvaluationCard";
 import { useAudioRecorder } from "./hooks/useAudioRecorder";
@@ -45,8 +45,10 @@ const formatScore = (value) => {
 };
 
 export default function App() {
+  const INTERVIEW_LIMIT_MS = 15 * 60 * 1000;
   const [candidateName, setCandidateName] = useState("");
   const [candidateEmail, setCandidateEmail] = useState("");
+  const [candidateReady, setCandidateReady] = useState(false);
   const [sessionId, setSessionId] = useState("");
   const [messages, setMessages] = useState([]);
   const [status, setStatus] = useState("idle");
@@ -57,9 +59,15 @@ export default function App() {
   const [liveHints, setLiveHints] = useState(null);
   const [recordings, setRecordings] = useState([]);
   const [dashboardRows, setDashboardRows] = useState([]);
-  const [view, setView] = useState("interview");
+  const [view, setView] = useState("candidate-entry");
   const [selectedSession, setSelectedSession] = useState(null);
   const [loadingSessionDetails, setLoadingSessionDetails] = useState(false);
+  const [recruiterPassword, setRecruiterPassword] = useState("");
+  const [recruiterAuthenticated, setRecruiterAuthenticated] = useState(false);
+  const [micFallbackEnabled, setMicFallbackEnabled] = useState(false);
+  const [textFallbackAnswer, setTextFallbackAnswer] = useState("");
+  const [interviewStartedAtMs, setInterviewStartedAtMs] = useState(0);
+  const [remainingMs, setRemainingMs] = useState(INTERVIEW_LIMIT_MS);
 
   const { supported, listening, interim, error, listenOnce, speakText } = useSpeechInterview({
     silenceMs: 4000
@@ -67,6 +75,17 @@ export default function App() {
   const { recording, startRecording, stopRecording } = useAudioRecorder();
 
   const aiSpeaking = useMemo(() => status === "ai_speaking", [status]);
+  const isTimeUp = remainingMs <= 0;
+
+  const formatRemainingTime = (ms) => {
+    const clamped = Math.max(0, ms);
+    const totalSeconds = Math.floor(clamped / 1000);
+    const minutes = Math.floor(totalSeconds / 60)
+      .toString()
+      .padStart(2, "0");
+    const seconds = (totalSeconds % 60).toString().padStart(2, "0");
+    return `${minutes}:${seconds}`;
+  };
 
   const appendMessage = (role, text) => {
     setMessages((prev) => [...prev, getMessage(role, text)]);
@@ -107,11 +126,20 @@ export default function App() {
       setLiveHints(null);
       setRecordings([]);
       setMessages([]);
+      setTextFallbackAnswer("");
+      setMicFallbackEnabled(false);
+      setInterviewStartedAtMs(0);
+      setRemainingMs(INTERVIEW_LIMIT_MS);
       setStatus("starting");
 
       const data = await startSessionApi(candidate);
       setSessionId(data.sessionId);
       setQuestionCount(data.questionCount || 1);
+      setCandidateReady(true);
+      setView("interview");
+      const startedAt = Date.now();
+      setInterviewStartedAtMs(startedAt);
+      setRemainingMs(INTERVIEW_LIMIT_MS);
 
       appendMessage("assistant", data.question);
       setStatus("ai_speaking");
@@ -125,7 +153,7 @@ export default function App() {
   };
 
   const submitAnswer = async () => {
-    if (!sessionId || processing) {
+    if (!sessionId || processing || isTimeUp) {
       return;
     }
 
@@ -142,7 +170,8 @@ export default function App() {
 
       if (heard.recognitionError) {
         setStatus("ready_for_response");
-        setBackendError("");
+        setMicFallbackEnabled(true);
+        setBackendError("Microphone capture failed. You can now submit a text answer.");
         return;
       }
 
@@ -187,14 +216,70 @@ export default function App() {
     }
   };
 
+  const submitTextFallback = async () => {
+    const transcript = textFallbackAnswer.trim();
+    if (!sessionId || processing || !micFallbackEnabled || isTimeUp) {
+      return;
+    }
+    if (!transcript) {
+      setBackendError("Please type your answer before submitting.");
+      return;
+    }
+
+    setProcessing(true);
+    setBackendError("");
+
+    try {
+      appendMessage("candidate", transcript);
+      setStatus("processing");
+      const response = await processResponseApi({
+        sessionId,
+        transcript,
+        transcriptionConfidence: 1,
+        audioBase64: ""
+      });
+
+      if (response.aiText) {
+        appendMessage("assistant", response.aiText);
+      }
+      if (response.liveHints) {
+        setLiveHints(response.liveHints);
+      }
+
+      setTextFallbackAnswer("");
+      if (response.messageType === "completed") {
+        setEvaluation(response.evaluation);
+        setStatus("completed");
+      } else {
+        setQuestionCount(response.questionCount || questionCount);
+        setStatus("ai_speaking");
+        await speakText(response.aiText || "");
+        setStatus("ready_for_response");
+      }
+    } catch (e) {
+      setStatus("ready_for_response");
+      setBackendError(e.message || "Failed to process text response.");
+    } finally {
+      setProcessing(false);
+    }
+  };
+
   const loadDashboard = async () => {
     try {
       setBackendError("");
-      const data = await listSessionsApi();
+      if (!recruiterAuthenticated) {
+        return;
+      }
+
+      const data = await listSessionsApi(recruiterPassword);
       setDashboardRows(data.sessions || []);
       setSelectedSession(null);
       setView("dashboard");
     } catch (e) {
+      if ((e.message || "").toLowerCase().includes("unauthorized")) {
+        setRecruiterAuthenticated(false);
+        setRecruiterPassword("");
+      }
       setBackendError(e.message || "Failed to load recruiter dashboard.");
     }
   };
@@ -204,7 +289,7 @@ export default function App() {
       setBackendError("");
       setLoadingSessionDetails(true);
       setView("dashboard-detail");
-      const data = await getSessionDetailsApi(sessionId);
+      const data = await getSessionDetailsApi(sessionId, recruiterPassword);
       setSelectedSession(data.session || null);
     } catch (e) {
       setView("dashboard");
@@ -214,7 +299,49 @@ export default function App() {
     }
   };
 
+  const openRecruiterDashboard = async () => {
+    const enteredPassword = window.prompt("Enter recruiter dashboard password:");
+    if (!enteredPassword) {
+      return;
+    }
+
+    setRecruiterPassword(enteredPassword);
+    setRecruiterAuthenticated(true);
+  };
+
+  const switchToCandidateEntry = () => {
+    setView("candidate-entry");
+    setBackendError("");
+  };
+
+  const switchToInterview = () => {
+    setView(candidateReady ? "interview" : "candidate-entry");
+    setBackendError("");
+  };
+
   const isDashboardView = view === "dashboard" || view === "dashboard-detail";
+
+  useEffect(() => {
+    if (!interviewStartedAtMs || status === "completed") {
+      return;
+    }
+
+    const tick = () => {
+      const elapsed = Date.now() - interviewStartedAtMs;
+      setRemainingMs(Math.max(0, INTERVIEW_LIMIT_MS - elapsed));
+    };
+
+    tick();
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+  }, [interviewStartedAtMs, status]);
+
+  useEffect(() => {
+    if (!recruiterAuthenticated) {
+      return;
+    }
+    loadDashboard();
+  }, [recruiterAuthenticated]);
 
   return (
     <main className="page">
@@ -225,41 +352,52 @@ export default function App() {
 
       <section className="panel controls">
         <div className="toolbar">
-          <button className={view === "interview" ? "primary" : "secondary"} type="button" onClick={() => setView("interview")}>
-            Interview View
+          <button className={view === "interview" ? "primary" : "secondary"} type="button" onClick={switchToInterview}>
+            Candidate View
           </button>
-          <button className={isDashboardView ? "primary" : "secondary"} type="button" onClick={loadDashboard}>
+          <button
+            className={`${isDashboardView ? "primary" : "secondary"} recruiter-dashboard-btn`}
+            type="button"
+            onClick={openRecruiterDashboard}
+          >
             Recruiter Dashboard
           </button>
         </div>
       </section>
 
+      {view === "candidate-entry" ? (
+        <section className="panel controls">
+          <h2>Candidate Details</h2>
+          <p>Enter your name and email to begin the interview.</p>
+          <div className="candidate-form">
+            <input
+              type="text"
+              placeholder="Candidate name"
+              value={candidateName}
+              onChange={(e) => setCandidateName(e.target.value)}
+            />
+            <input
+              type="email"
+              placeholder="Candidate email"
+              value={candidateEmail}
+              onChange={(e) => setCandidateEmail(e.target.value)}
+            />
+          </div>
+          <button className="primary" type="button" onClick={startInterview} disabled={status === "starting"}>
+            Continue to Interview
+          </button>
+          {backendError ? <p className="warning">{backendError}</p> : null}
+        </section>
+      ) : null}
+
       {view === "interview" ? (
         <>
           <section className="panel controls">
-            <div className="candidate-form">
-              <input
-                type="text"
-                placeholder="Candidate name"
-                value={candidateName}
-                onChange={(e) => setCandidateName(e.target.value)}
-              />
-              <input
-                type="email"
-                placeholder="Candidate email"
-                value={candidateEmail}
-                onChange={(e) => setCandidateEmail(e.target.value)}
-              />
-            </div>
-            <button className="primary" type="button" onClick={startInterview} disabled={status === "starting"}>
-              Start Session
-            </button>
-
             <button
               className="secondary"
               type="button"
               onClick={submitAnswer}
-              disabled={!sessionId || status === "completed" || processing || !supported}
+              disabled={!sessionId || status === "completed" || processing || !supported || isTimeUp}
             >
               {listening ? "Listening..." : "Answer via Microphone"}
             </button>
@@ -270,11 +408,37 @@ export default function App() {
               <span>AI Speaking: {aiSpeaking ? "Yes" : "No"}</span>
               <span>Recording: {recording ? "On" : "Off"}</span>
             </div>
+            <div className={`timer ${isTimeUp ? "expired" : ""}`}>
+              Time left: {formatRemainingTime(remainingMs)} / 15:00
+            </div>
 
             {!supported ? <p className="warning">Web Speech API is not supported in this browser.</p> : null}
             {interim ? <p className="interim">Live transcript: {interim}</p> : null}
             {error ? <p className="warning">{error}</p> : null}
             {backendError ? <p className="warning">{backendError}</p> : null}
+            {isTimeUp ? <p className="warning">Time is up. Submissions are disabled.</p> : null}
+
+            {micFallbackEnabled ? (
+              <div className="text-fallback">
+                <label htmlFor="text-fallback-answer">Text fallback (enabled after microphone failure)</label>
+                <textarea
+                  id="text-fallback-answer"
+                  placeholder="Type your answer here..."
+                  value={textFallbackAnswer}
+                  onChange={(e) => setTextFallbackAnswer(e.target.value)}
+                  rows={4}
+                  disabled={processing || status === "completed" || isTimeUp}
+                />
+                <button
+                  className="primary"
+                  type="button"
+                  onClick={submitTextFallback}
+                  disabled={processing || status === "completed" || isTimeUp || !textFallbackAnswer.trim()}
+                >
+                  Submit Text Answer
+                </button>
+              </div>
+            ) : null}
           </section>
 
           <section className="panel">
@@ -320,6 +484,11 @@ export default function App() {
       {view === "dashboard" ? (
         <section className="panel">
           <h2>Recruiter Dashboard</h2>
+          <div className="toolbar">
+            <button className="secondary" type="button" onClick={switchToInterview}>
+              Back to Candidate View
+            </button>
+          </div>
           {backendError ? <p className="warning">{backendError}</p> : null}
           <div className="table-wrap">
             <table>
@@ -361,6 +530,9 @@ export default function App() {
           <div className="toolbar">
             <button className="secondary" type="button" onClick={() => setView("dashboard")}>
               Back to Dashboard
+            </button>
+            <button className="secondary" type="button" onClick={switchToCandidateEntry}>
+              Candidate Start Page
             </button>
           </div>
           {backendError ? <p className="warning">{backendError}</p> : null}

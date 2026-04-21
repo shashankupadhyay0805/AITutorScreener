@@ -1,6 +1,29 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+const normalizeTranscript = (text = "") =>
+  text
+    .replace(/\s+/g, " ")
+    .replace(/\bi\s*\b/g, "I")
+    .trim();
+
+const pickBestAlternative = (result) => {
+  if (!result || !result.length) {
+    return null;
+  }
+
+  let best = result[0];
+  for (let i = 1; i < result.length; i += 1) {
+    const current = result[i];
+    const bestConfidence = typeof best?.confidence === "number" ? best.confidence : -1;
+    const currentConfidence = typeof current?.confidence === "number" ? current.confidence : -1;
+    if (currentConfidence > bestConfidence) {
+      best = current;
+    }
+  }
+  return best;
+};
+
 const speechErrorMessage = (errorCode) => {
   switch (errorCode) {
     case "not-allowed":
@@ -33,10 +56,10 @@ export const useSpeechInterview = ({ silenceMs = 6500 } = {}) => {
     }
 
     const recognition = new SpeechRecognition();
-    recognition.continuous = true;
-    recognition.lang = "en-US";
+    recognition.continuous = false;
+    recognition.lang = navigator.language || "en-US";
     recognition.interimResults = true;
-    recognition.maxAlternatives = 1;
+    recognition.maxAlternatives = 3;
 
     recognitionRef.current = recognition;
 
@@ -83,7 +106,7 @@ export const useSpeechInterview = ({ silenceMs = 6500 } = {}) => {
         return;
       }
 
-      let finalTranscript = "";
+      let finalChunks = [];
       let latestInterimTranscript = "";
       let finalConfidence = 0.85;
       let resolved = false;
@@ -105,10 +128,13 @@ export const useSpeechInterview = ({ silenceMs = 6500 } = {}) => {
 
         for (let i = event.resultIndex; i < event.results.length; i += 1) {
           const result = event.results[i];
-          const alt = result[0];
+          const alt = pickBestAlternative(result);
+          if (!alt?.transcript) {
+            continue;
+          }
 
           if (result.isFinal) {
-            finalTranscript += `${alt.transcript} `;
+            finalChunks.push(alt.transcript);
             finalConfidence = typeof alt.confidence === "number" ? alt.confidence : finalConfidence;
           } else {
             interimText += alt.transcript;
@@ -119,10 +145,12 @@ export const useSpeechInterview = ({ silenceMs = 6500 } = {}) => {
         lastSpeechAt = Date.now();
         setInterim(interimText);
         resetSilenceTimer(() => {
+          const stableTranscript = normalizeTranscript(finalChunks.join(" "));
+          const fallbackTranscript = normalizeTranscript(latestInterimTranscript);
           safeResolve({
-            transcript: (finalTranscript.trim() || latestInterimTranscript).trim(),
+            transcript: stableTranscript || fallbackTranscript,
             confidence: finalConfidence,
-            silence: false,
+            silence: !(stableTranscript || fallbackTranscript),
             recognitionError: false
           });
         });
@@ -130,11 +158,13 @@ export const useSpeechInterview = ({ silenceMs = 6500 } = {}) => {
 
       recognitionRef.current.onerror = (event) => {
         if (event?.error === "no-speech") {
-          const fallbackTranscript = (finalTranscript.trim() || latestInterimTranscript).trim();
+          const stableTranscript = normalizeTranscript(finalChunks.join(" "));
+          const fallbackTranscript = normalizeTranscript(latestInterimTranscript);
+          const transcript = stableTranscript || fallbackTranscript;
           safeResolve({
-            transcript: fallbackTranscript,
+            transcript,
             confidence: finalConfidence,
-            silence: !fallbackTranscript,
+            silence: !transcript,
             recognitionError: false
           });
           return;
@@ -142,7 +172,7 @@ export const useSpeechInterview = ({ silenceMs = 6500 } = {}) => {
 
         setError(speechErrorMessage(event?.error));
         safeResolve({
-          transcript: finalTranscript.trim(),
+          transcript: normalizeTranscript(finalChunks.join(" ")),
           confidence: finalConfidence,
           silence: true,
           recognitionError: true
@@ -168,9 +198,9 @@ export const useSpeechInterview = ({ silenceMs = 6500 } = {}) => {
         }
 
         safeResolve({
-          transcript: (finalTranscript.trim() || latestInterimTranscript).trim(),
+          transcript: normalizeTranscript(finalChunks.join(" ")) || normalizeTranscript(latestInterimTranscript),
           confidence: finalConfidence,
-          silence: !(finalTranscript.trim() || latestInterimTranscript),
+          silence: !(normalizeTranscript(finalChunks.join(" ")) || normalizeTranscript(latestInterimTranscript)),
           recognitionError: false
         });
       };
@@ -179,10 +209,12 @@ export const useSpeechInterview = ({ silenceMs = 6500 } = {}) => {
       recognitionRef.current.start();
 
       resetSilenceTimer(() => {
+        const stableTranscript = normalizeTranscript(finalChunks.join(" "));
+        const fallbackTranscript = normalizeTranscript(latestInterimTranscript);
         safeResolve({
-          transcript: (finalTranscript.trim() || latestInterimTranscript).trim(),
+          transcript: stableTranscript || fallbackTranscript,
           confidence: finalConfidence,
-          silence: !(finalTranscript.trim() || latestInterimTranscript),
+          silence: !(stableTranscript || fallbackTranscript),
           recognitionError: false
         });
       });

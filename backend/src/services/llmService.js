@@ -65,6 +65,43 @@ const toJson = (text, fallback) => {
 };
 
 const clampScore = (value) => Math.max(0, Math.min(10, Number(value) || 5));
+const mathQuestionPattern = /\b(fraction|multiply|multiplication|division|decimal|equation|algebra|geometry|number|math|problem)\b/i;
+const normalizeQuestion = (text = "") =>
+  text
+    .toLowerCase()
+    .replace(/["'`]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const getAskedQuestionSet = (session) => {
+  const asked = (session.transcript || [])
+    .filter((entry) => entry.role === "assistant")
+    .map((entry) => normalizeQuestion(entry.text))
+    .filter(Boolean);
+  return new Set(asked);
+};
+
+const buildShortAnswerGuidance = (question = "", response = "") => {
+  const normalized = (response || "").trim().toLowerCase();
+  const genericLowInfo = /^(ok|okay|hmm|yes|no|maybe|idk|i don't know|suppose)$/i.test(normalized);
+
+  if (question && genericLowInfo) {
+    return `Could you answer "${question}" with one simple real-life example and 2-3 clear teaching steps?`;
+  }
+
+  if (question) {
+    return `Please expand your answer to "${question}" and include what you would say to the student first.`;
+  }
+
+  return "Could you expand your answer with one concrete example and a step-by-step explanation?";
+};
+
+const isLikelyDetailedResponse = (response = "") => {
+  const normalized = (response || "").trim().toLowerCase();
+  const wordCount = normalized ? normalized.split(/\s+/).length : 0;
+  const hasReasoning = /\b(first|then|because|so|means|example|out of|represents)\b/i.test(normalized);
+  return wordCount >= 22 && hasReasoning;
+};
 
 export const classifyResponse = async ({ session, responseText, confidence }) => {
   const normalizedText = (responseText || "").trim().toLowerCase();
@@ -95,7 +132,17 @@ export const classifyResponse = async ({ session, responseText, confidence }) =>
       quality: "too_short",
       irrelevant: false,
       toxicity: "none",
-      guidance: "Thanks. Could you expand a bit with a concrete example?"
+      guidance: buildShortAnswerGuidance(session.currentQuestion, responseText)
+    };
+  }
+
+  // Protect strong, detailed explanations from being over-penalized by model variance.
+  if (isLikelyDetailedResponse(responseText)) {
+    return {
+      quality: "good",
+      irrelevant: false,
+      toxicity: "none",
+      guidance: ""
     };
   }
 
@@ -151,9 +198,11 @@ Response: ${responseText}
 };
 
 export const generateNextQuestion = async ({ session, latestResponse }) => {
+  const askedQuestionSet = getAskedQuestionSet(session);
+  const unseenSeed = seedQuestions.find((question) => !askedQuestionSet.has(normalizeQuestion(question)));
+
   if (!hasGroqConfig) {
-    const idx = Math.min(session.questionCount, seedQuestions.length - 1);
-    return seedQuestions[idx];
+    return unseenSeed || seedQuestions[Math.min(session.questionCount, seedQuestions.length - 1)];
   }
 
   const prompt = `
@@ -161,10 +210,16 @@ You are interviewing a tutor candidate.
 Session so far:\n${session.transcript.map((t) => `${t.role}: ${t.text}`).join("\n")}
 
 Latest candidate response: ${latestResponse}
+Current follow-up count for this question: ${Number(session.followUpCountForCurrentQuestion || 0)}
 
 Generate ONE next interviewer question.
 It should be adaptive, concise, warm, and math-tutoring focused.
+Do not ask only math-content questions. Also probe the candidate's teaching approach, decision-making, and student-handling style.
+Use math scenarios as context, then ask how they would communicate, check understanding, and adapt.
+Match this style: child-focused, concrete, and specific (example: "Explain fractions to a 9-year-old who is struggling.").
 Prefer a targeted follow-up on the same topic before switching topics.
+Never repeat a previously asked interviewer question.
+When followUpCountForCurrentQuestion is 0, generate one follow-up question about the candidate's approach based on their latest answer.
 Your follow-up should probe one or more of:
 - clarity (can the candidate explain simply and correctly),
 - patience (how they respond to confusion),
@@ -177,7 +232,17 @@ Avoid repeating prior wording.
 `;
 
   const text = await generateText(prompt);
-  return (text || "Could you walk me through your teaching approach in a tough moment?").trim();
+  const candidateQuestion = (text || "").trim();
+  const isRepeated = candidateQuestion && askedQuestionSet.has(normalizeQuestion(candidateQuestion));
+  if (candidateQuestion && mathQuestionPattern.test(candidateQuestion) && !isRepeated) {
+    return candidateQuestion;
+  }
+
+  if (unseenSeed) {
+    return unseenSeed;
+  }
+
+  return "How would you explain a basic math concept to a struggling student in a different way than before?";
 };
 
 export const generateFinalEvaluation = async ({ session }) => {

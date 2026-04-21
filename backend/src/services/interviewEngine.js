@@ -30,46 +30,155 @@ const applyProfessionalismPenalty = (session, severity) => {
   );
 };
 
-const applyCrossCategoryToxicityPenalty = (scores, toxicWordCount) => {
-  if (!toxicWordCount) {
+const applyBaselineOutcomeSummary = (session, toxicWordCount) => {
+  const scores = session.evaluation?.scores || {};
+  const metricNames = ["clarity", "patience", "simplicity", "warmth", "fluency", "professionalism"];
+  const allAboveBaseline = metricNames.every((name) => Number(scores[name]) > 5);
+  const requiredQuestions = Math.max(config.minQuestions, Number(session.maxQuestions) || 0);
+  const attendedAllQuestions = Number(session.questionCount) >= requiredQuestions;
+  const attendanceNote = attendedAllQuestions ? "" : " Candidate did not attend all the questions.";
+
+  if (toxicWordCount > 0 || session.toxicCount > 0) {
+    session.evaluation.summary =
+      `Candidate used inappropriate language. Regardless of other scores, the candidate did not pass the interview baseline.${attendanceNote}`;
+    session.evaluation.flagged = true;
     return;
   }
 
-  const deduction = toxicWordCount * 0.5;
-  const categories = ["clarity", "patience", "simplicity", "warmth", "fluency"];
-  categories.forEach((category) => {
-    scores[category] = clamp(Number(scores[category]) - deduction);
+  if (allAboveBaseline) {
+    session.evaluation.summary =
+      `Candidate scored above the baseline of 5 in each metric and has passed the interview.${attendanceNote}`;
+    return;
+  }
+
+  session.evaluation.summary =
+    `Candidate scored below the baseline of 5 in one or more metrics and did not pass the interview.${attendanceNote}`;
+};
+
+const mapIntoBand = (value, minBand, maxBand) => {
+  const numeric = Number(value) || 0;
+  if (numeric <= 5) {
+    return clamp(numeric);
+  }
+  const normalized = (Math.min(9, numeric) - 5) / 4;
+  return clamp(minBand + normalized * (maxBand - minBand));
+};
+
+const needsClarification = ({ quality, irrelevant }) => {
+  if (irrelevant) {
+    return true;
+  }
+  return ["too_short", "unclear", "off_topic", "nonsense", "low_confidence_transcript"].includes(String(quality));
+};
+
+const buildClarifyingFollowUp = (question, latestResponse) => {
+  const shortResponse = (latestResponse || "").trim() || "your previous response";
+  return `You said "${shortResponse}". Please answer "${question}" more clearly with one concrete example, what you would say first to the student, and 2-3 teaching steps.`;
+};
+
+const rebalanceFinalScores = (session) => {
+  const candidateAnswers = session.transcript.filter((entry) => entry.role === "candidate" && entry.text?.trim());
+  const avgWords =
+    candidateAnswers.length > 0
+      ? candidateAnswers.reduce((sum, entry) => sum + entry.text.trim().split(/\s+/).length, 0) / candidateAnswers.length
+      : 0;
+  const excellentCandidate =
+    session.toxicCount === 0 &&
+    session.irrelevantCount === 0 &&
+    candidateAnswers.length >= Math.max(3, Math.floor((session.questionCount || 0) * 0.7)) &&
+    avgWords >= 22;
+
+  const targetMin = excellentCandidate ? 8 : 7;
+  const targetMax = excellentCandidate ? 9 : 8;
+  const metricNames = ["clarity", "patience", "simplicity", "warmth", "fluency", "professionalism"];
+  metricNames.forEach((name) => {
+    session.evaluation.scores[name] = mapIntoBand(session.evaluation.scores[name], targetMin, targetMax);
   });
 };
 
 const rewardGoodResponse = (session) => {
   const bonusMap = {
-    clarity: 0.8,
-    simplicity: 0.8,
-    fluency: 0.7,
-    patience: 0.6,
-    warmth: 0.6,
-    professionalism: 0.6
+    clarity: 0.24,
+    simplicity: 0.24,
+    fluency: 0.22,
+    patience: 0.2,
+    warmth: 0.2,
+    professionalism: 0.2
   };
 
   Object.entries(bonusMap).forEach(([category, bonus]) => {
-    session.evaluation.scores[category] = clamp(session.evaluation.scores[category] + bonus);
+    session.evaluation.scores[category] = clamp(Math.min(8, session.evaluation.scores[category] + bonus));
   });
 };
 
 const applyParticipationProgress = (session) => {
   const categories = ["clarity", "patience", "simplicity", "warmth", "fluency", "professionalism"];
   categories.forEach((category) => {
-    session.evaluation.scores[category] = clamp(session.evaluation.scores[category] + 0.1);
+    session.evaluation.scores[category] = clamp(Math.min(8, session.evaluation.scores[category] + 0.03));
   });
 };
 
-const firstFollowUpPrompts = [
-  "Please explain the solution clearly, step by step, in simple words as if you are teaching a 9-year-old.",
-  "Can you try again using a very simple real-life example and explain each step slowly?",
-  "Please break your explanation into 3 clear steps and say why each step helps the student understand.",
-  "Could you answer again in child-friendly language and include one quick check question for the student?"
+const firstFollowUpPromptBuilders = [
+  (question) =>
+    `Please try that again for "${question}" in 3 short steps using simple language for a 9-year-old.`,
+  (question) =>
+    `Could you re-answer "${question}" with one real-life example and explain each step slowly?`,
+  (question) =>
+    `Please give a clearer answer to "${question}" using child-friendly words and one quick check question.`,
+  (question) =>
+    `Let's retry "${question}" with a calm, encouraging explanation and one common mistake to avoid.`
 ];
+
+const pickFirstFollowUpPrompt = (session) => {
+  const question = session.currentQuestion || "the question";
+  const options = firstFollowUpPromptBuilders.map((build) => build(question));
+  const seed = (session.questionCount * 31 + session.followUpCountForCurrentQuestion * 17) % options.length;
+  return options[seed];
+};
+
+const normalizeQuestion = (text = "") =>
+  text
+    .toLowerCase()
+    .replace(/["'`]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const getAskedAssistantQuestionSet = (session) => {
+  const asked = (session.transcript || [])
+    .filter((entry) => entry.role === "assistant")
+    .map((entry) => normalizeQuestion(entry.text))
+    .filter(Boolean);
+  return new Set(asked);
+};
+
+const getNextSeedQuestion = (session) => {
+  const askedQuestions = getAskedAssistantQuestionSet(session);
+  const order = Array.isArray(session.seedQuestionOrder) ? session.seedQuestionOrder : [];
+  if (!order.length) {
+    const unseenFallback = seedQuestions.find((question) => !askedQuestions.has(normalizeQuestion(question)));
+    return unseenFallback || seedQuestions[session.questionCount] || seedQuestions[seedQuestions.length - 1];
+  }
+
+  const cursor = Number(session.seedQuestionCursor) || 0;
+  for (let i = cursor; i < order.length; i += 1) {
+    const idx = order[i];
+    const candidate = seedQuestions[idx];
+    if (candidate && !askedQuestions.has(normalizeQuestion(candidate))) {
+      return candidate;
+    }
+  }
+
+  const unseenAny = seedQuestions.find((question) => !askedQuestions.has(normalizeQuestion(question)));
+  if (unseenAny) {
+    return unseenAny;
+  }
+
+  const nextIdx = order[cursor];
+  if (typeof nextIdx !== "number") {
+    return seedQuestions[order[order.length - 1]];
+  }
+  return seedQuestions[nextIdx];
+};
 
 export const buildPolicyReply = ({ quality, toxicity, session, guidance }) => {
   if (quality === "silence") {
@@ -131,70 +240,42 @@ export const buildPolicyReply = ({ quality, toxicity, session, guidance }) => {
   };
 };
 
-export const chooseNextStep = async ({ session, latestResponse, quality, toxicity, irrelevant }) => {
-  const requiredCoreMathQuestions = Math.min(4, seedQuestions.length);
-  const hasAskedRequiredCoreQuestions = session.questionCount >= requiredCoreMathQuestions;
-  const reachedLimit = session.questionCount >= session.maxQuestions;
-  const reachedMinimum = session.questionCount >= config.minQuestions;
+export const chooseNextStep = async ({ session, latestResponse, quality, irrelevant }) => {
+  const effectiveMaxQuestions = Math.max(config.minQuestions, Number(session.maxQuestions) || 0);
+  session.maxQuestions = effectiveMaxQuestions;
+  const reachedLimit = session.questionCount >= effectiveMaxQuestions;
   const currentFollowUpCount = Number(session.followUpCountForCurrentQuestion || 0);
-  const maxFollowUpsPerQuestion = 3;
+  const maxFollowUpsPerQuestion = 1;
+  const requiresClarification = needsClarification({
+    quality,
+    irrelevant
+  });
 
   if (reachedLimit) {
     return { endInterview: true, nextQuestion: "" };
   }
 
-  // Force 3-4 core math scenarios before adaptive follow-ups.
-  if (!hasAskedRequiredCoreQuestions) {
-    const answeredWell = quality === "good" && !irrelevant && toxicity === "none";
+  // Ask exactly one follow-up per main question. If answer is weak/unclear,
+  // make that follow-up a direct clarification before moving on.
+  if (currentFollowUpCount < maxFollowUpsPerQuestion) {
+    const followUp = requiresClarification
+      ? buildClarifyingFollowUp(session.currentQuestion || "the question", latestResponse)
+      : await generateNextQuestion({
+          session,
+          latestResponse
+        });
 
-    if (!answeredWell && currentFollowUpCount < maxFollowUpsPerQuestion) {
-      if (currentFollowUpCount === 0) {
-        const promptIndex = Math.max(0, (session.questionCount - 1) % firstFollowUpPrompts.length);
-        return {
-          endInterview: false,
-          nextQuestion: firstFollowUpPrompts[promptIndex],
-          countsAsQuestion: false,
-          nextFollowUpCount: 1
-        };
-      }
-
-      const followUp = await generateNextQuestion({
-        session,
-        latestResponse
-      });
-
-      return {
-        endInterview: false,
-        nextQuestion: followUp,
-        countsAsQuestion: false,
-        nextFollowUpCount: currentFollowUpCount + 1
-      };
-    }
-
-    // Either answered well, or we already asked max follow-ups and should proceed.
     return {
       endInterview: false,
-      nextQuestion: seedQuestions[session.questionCount],
-      countsAsQuestion: true,
-      nextFollowUpCount: 0
+      nextQuestion: followUp,
+      countsAsQuestion: false,
+      nextFollowUpCount: currentFollowUpCount + 1
     };
   }
 
-  if (reachedMinimum && quality === "good" && !irrelevant && toxicity === "none") {
-    const concise = latestResponse.trim().split(/\s+/).length > 25;
-    if (!concise || session.questionCount >= config.maxQuestions - 1) {
-      return { endInterview: true, nextQuestion: "" };
-    }
-  }
-
-  const nextQuestion = await generateNextQuestion({
-    session,
-    latestResponse
-  });
-
   return {
     endInterview: false,
-    nextQuestion,
+    nextQuestion: getNextSeedQuestion(session),
     countsAsQuestion: true,
     nextFollowUpCount: 0
   };
@@ -204,13 +285,22 @@ export const finalizeSessionEvaluation = async (session) => {
   const llmEvaluation = await generateFinalEvaluation({ session });
   session.evaluation = llmEvaluation;
 
-  // Keep final scores aligned with policy: deduct 0.5 per inappropriate word
-  // across non-professionalism dimensions.
+  // Inappropriate language impacts professionalism, but should not drag all other metrics.
   const toxicWordCount = session.transcript
     .filter((entry) => entry.role === "candidate")
     .reduce((total, entry) => total + countInappropriateWords(entry.text), 0);
-  applyCrossCategoryToxicityPenalty(session.evaluation.scores, toxicWordCount);
+
+  const candidateResponses = session.transcript.filter((entry) => entry.role === "candidate" && entry.text?.trim()).length;
+  if (toxicWordCount === 0 && session.toxicCount === 0) {
+    session.evaluation.scores.professionalism = clamp(Math.max(7.2, Number(session.evaluation.scores.professionalism) || 7.2));
+    if (candidateResponses >= 1) {
+      session.evaluation.scores.fluency = clamp(Math.max(7.0, Number(session.evaluation.scores.fluency) || 7.0));
+    }
+  }
+
+  rebalanceFinalScores(session);
   session.evaluation.flagged = session.toxicCount > 0 || toxicWordCount > 0;
+  applyBaselineOutcomeSummary(session, toxicWordCount);
 
   session.status = "completed";
   return session;
@@ -245,7 +335,6 @@ export const registerBehaviorSignals = ({ session, quality, toxicity, irrelevant
       severity: toxicity,
       note: "Inappropriate or disrespectful language detected."
     });
-    applyCrossCategoryToxicityPenalty(session.evaluation.scores, toxicWordCount || 1);
     applyProfessionalismPenalty(session, toxicity);
     return;
   }

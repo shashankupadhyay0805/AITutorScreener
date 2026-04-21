@@ -352,10 +352,139 @@ tbody tr {
 
 @media (max-width: 768px) {
   .page {
-    padding: 18px 12px 24px;
+    padding: 16px 12px 26px;
+    gap: 14px;
+  }
+
+  .hero h1 {
+    font-size: clamp(1.9rem, 8vw, 2.35rem);
+    line-height: 1.08;
+  }
+
+  .hero p {
+    font-size: 0.98rem;
+    margin-top: 8px;
+    opacity: 0.92;
+  }
+
+  .panel {
+    border-radius: 16px;
+    padding: 14px;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.15);
+  }
+
+  .toolbar {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    width: 100%;
+  }
+
+  .recruiter-dashboard-btn {
+    margin-left: 0;
+  }
+
+  .toolbar button {
+    width: 100%;
+    min-height: 44px;
+    border-radius: 12px;
+    font-size: 0.95rem;
+    padding: 11px 10px;
+  }
+
+  .controls > button,
+  .text-fallback button {
+    width: 100%;
+    min-height: 46px;
+    border-radius: 12px;
+  }
+
+  .candidate-form {
+    grid-template-columns: 1fr;
+    gap: 9px;
+  }
+
+  .candidate-form input,
+  .text-fallback textarea {
+    border-radius: 12px;
+    font-size: 15px;
+    padding: 11px 12px;
+  }
+
+  .meta {
+    gap: 8px 12px;
+    font-size: 13px;
+    border-radius: 12px;
+    padding: 10px;
+  }
+
+  .timer {
+    border-radius: 12px;
+    font-size: 13px;
+    padding: 10px;
+  }
+
+  .chat-timeline {
+    max-height: 320px;
+    gap: 10px;
+    padding-right: 2px;
+  }
+
+  .bubble {
+    padding: 11px;
+    border-radius: 12px;
+  }
+
+  .bubble-label {
+    font-size: 11px;
+  }
+
+  .evaluation-card {
+    border-radius: 16px;
+    padding: 14px;
+  }
+
+  .score-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .score-item {
+    border-radius: 10px;
+    padding: 9px;
+  }
+
+  .score-value {
+    font-size: 1.35rem;
+  }
+
+  table {
+    min-width: 760px;
+  }
+
+  .session-details h2 {
+    font-size: 1.2rem;
+  }
+
+  .warning {
+    font-size: 0.95rem;
   }
 
   .columns {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 460px) {
+  .toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .score-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .hero h1 {
+    font-size: clamp(1.8rem, 9vw, 2.1rem);
   }
 }

@@ -1,7 +1,7 @@
 :root {
   font-family: Inter, Segoe UI, sans-serif;
   --text: #0f172a;
-  --bg: linear-gradient(rgba(248, 250, 252, 0.84), rgba(241, 245, 249, 0.84)), url("/bg-image.png");
+  --bg: linear-gradient(rgba(248, 250, 252, 0.84), rgba(241, 245, 249, 0.84)), url("./assets/classroom_robot.jpg");
   --panel-bg: linear-gradient(145deg, rgba(255, 255, 255, 0.95), rgba(248, 250, 252, 0.92));
   --panel-border: rgba(148, 163, 184, 0.22);
   --muted: #334155;
@@ -18,7 +18,7 @@
 
 :root[data-theme="dark"] {
   --text: #e2e8f0;
-  --bg: linear-gradient(rgba(15, 23, 42, 0.86), rgba(17, 24, 39, 0.86)), url("/bg-image.png");
+  --bg: linear-gradient(rgba(15, 23, 42, 0.86), rgba(17, 24, 39, 0.86)), url("./assets/classroom_robot.jpg");
   --panel-bg: linear-gradient(145deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.92));
   --panel-border: rgba(148, 163, 184, 0.35);
   --muted: #cbd5e1;
@@ -67,9 +67,18 @@ body {
 
 .hero p {
   margin: 12px 0 0;
-  color: #334155;
+  color: var(--muted);
   font-size: 1.08rem;
   max-width: 760px;
+}
+
+.hero-image {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin-top: 20px;
+  border-radius: 10px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
 }
 
 .panel {
@@ -96,6 +105,155 @@ body {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+.toolbar-equal {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  width: 100%;
+}
+
+.toolbar-equal button {
+  width: 100%;
+  min-height: 46px;
+  border-radius: 14px;
+}
+
+.recruiter-form {
+  display: grid;
+  gap: 10px;
+  max-width: 520px;
+}
+
+.recruiter-form input {
+  width: 100%;
+  border: 1px solid rgba(148, 163, 184, 0.55);
+  border-radius: 14px;
+  padding: 12px 14px;
+  font-size: 15px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(248, 250, 252, 0.88));
+  color: var(--text);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+  outline: none;
+}
+
+:root[data-theme="dark"] .recruiter-form input {
+  border-color: rgba(148, 163, 184, 0.4);
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.75), rgba(30, 41, 59, 0.72));
+  box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.12);
+}
+
+.recruiter-form input:focus {
+  border-color: rgba(20, 184, 166, 0.9);
+  box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.22);
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.hamburger {
+  width: 44px;
+  height: 44px;
+  padding: 10px;
+  border-radius: 12px;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  box-shadow: 0 12px 26px rgba(15, 23, 42, 0.18);
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 5px;
+}
+
+.hamburger span {
+  display: block;
+  width: 18px;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--text);
+  opacity: 0.9;
+}
+
+.menu-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.35);
+  border: none;
+  padding: 0;
+  margin: 0;
+  z-index: 40;
+}
+
+.menu-drawer {
+  position: fixed;
+  top: 22px;
+  left: 22px;
+  width: min(320px, calc(100vw - 44px));
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 16px;
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.22);
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+  z-index: 50;
+  backdrop-filter: blur(10px);
+}
+
+.menu-item {
+  width: 100%;
+  text-align: left;
+  padding: 12px 12px;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text);
+  font-weight: 800;
+  box-shadow: none;
+}
+
+.menu-item:hover:not(:disabled) {
+  transform: none;
+  filter: none;
+  background: rgba(148, 163, 184, 0.16);
+}
+
+.bullet-list {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 8px;
+}
+
+.muted {
+  color: var(--muted);
+  margin: 6px 0 0;
+}
+
+.role-selection {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.role-selection button {
+  width: 100%;
+  min-height: 56px;
+  border-radius: 14px;
+  font-size: 1.05rem;
+  letter-spacing: 0.01em;
+}
+
+.role-selection button.primary {
+  box-shadow: 0 18px 36px rgba(20, 184, 166, 0.35);
+}
+
+.role-selection button.secondary {
+  box-shadow: 0 18px 36px rgba(59, 130, 246, 0.32);
 }
 
 .recruiter-dashboard-btn {
@@ -253,15 +411,15 @@ audio {
 }
 
 .interim {
-  color: #0c4a6e;
+  color: var(--muted);
   font-weight: 600;
 }
 
 .evaluation-card {
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(241, 245, 249, 0.92));
+  background: var(--panel-bg);
   border-radius: 18px;
   padding: 20px;
-  border: 1px solid rgba(148, 163, 184, 0.22);
+  border: 1px solid var(--panel-border);
   box-shadow: 0 14px 34px rgba(15, 23, 42, 0.12);
 }
 
@@ -286,13 +444,13 @@ audio {
 .score-label {
   text-transform: capitalize;
   font-size: 13px;
-  color: #334155;
+  color: var(--muted);
 }
 
 .score-value {
   font-size: 20px;
   font-weight: 700;
-  color: #1d4ed8;
+  color: var(--text);
 }
 
 .summary {
@@ -320,7 +478,7 @@ table {
 
 th,
 td {
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid var(--panel-border);
   text-align: left;
   padding: 11px;
   font-size: 14px;
@@ -328,7 +486,7 @@ td {
 
 th {
   background: linear-gradient(90deg, #e0f2fe, #e0e7ff);
-  color: #0f172a;
+  color: var(--text);
   font-weight: 700;
 }
 
@@ -346,7 +504,7 @@ tbody tr {
 
 .session-details {
   margin-top: 16px;
-  border-top: 1px solid #e2e8f0;
+  border-top: 1px solid var(--panel-border);
   padding-top: 14px;
 }
 
@@ -477,6 +635,18 @@ tbody tr {
 
 @media (max-width: 460px) {
   .toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .toolbar-equal {
+    grid-template-columns: 1fr;
+  }
+
+  .topbar {
+    flex-wrap: wrap;
+  }
+
+  .role-selection {
     grid-template-columns: 1fr;
   }
 

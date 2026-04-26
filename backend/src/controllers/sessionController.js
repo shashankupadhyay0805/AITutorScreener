@@ -311,6 +311,54 @@ export const processResponse = async (req, res, next) => {
   }
 };
 
+export const endSession = async (req, res, next) => {
+  try {
+    const { sessionId } = req.body || {};
+    if (!sessionId) {
+      return res.status(400).json({ error: "sessionId is required." });
+    }
+
+    const session = await Session.findById(sessionId);
+    if (!session) {
+      return res.status(404).json({ error: "Session not found." });
+    }
+
+    if (session.status === "completed") {
+      return res.status(400).json({ error: "Session already completed." });
+    }
+
+    session.transcript.push({
+      role: "assistant",
+      text: "Thanks for your time. We'll submit your interview now."
+    });
+
+    await finalizeSessionEvaluation(session);
+    session.evaluation.summary =
+      session.evaluation.summary ||
+      "Candidate ended the interview early and submitted the session for evaluation.";
+    await session.save();
+
+    return res.json({
+      status: session.status,
+      messageType: "completed",
+      aiText: "Interview submitted. Thanks for your responses.",
+      evaluation: session.evaluation,
+      questionCount: session.questionCount,
+      toxicCount: session.toxicCount,
+      irrelevantCount: session.irrelevantCount,
+      liveHints: {
+        currentScores: session.evaluation.scores,
+        riskSignals: {
+          toxicCount: session.toxicCount,
+          irrelevantCount: session.irrelevantCount
+        }
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const getEvaluation = async (req, res, next) => {
   try {
     const session = await Session.findById(req.params.sessionId);

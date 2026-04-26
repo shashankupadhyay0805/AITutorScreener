@@ -1,124 +1,237 @@
 # AI Tutor Screener
 
-Production-oriented full-stack application for running voice-based tutor interviews and generating structured soft-skill assessments.
+**AI Tutor Screener** is a full-stack web application for screening tutor candidates through a **voice-first interview**. The AI asks structured, **math-teaching** questions (with one follow-up per question focused on *how* the candidate teaches), records candidate answers, and produces a **structured evaluation** for recruiters. A **password-protected recruiter dashboard** lists sessions, shows transcripts, and surfaces pass/fail outcomes.
 
-## Stack
+---
 
-- Frontend: React + Vite + Web Speech API (STT + TTS)
-- Backend: Node.js + Express
-- Database: MongoDB (Mongoose)
-- LLM: Groq API (with safe fallback when API key is missing)
+## What we built and which problem we picked
 
-## Folder Structure
+This repository implements **Problem 3: The AI Tutor Screener** from the project brief (the scenario where a tutoring company hires at volume and today relies on short human phone screens to judge communication, patience, warmth, ability to simplify, and general suitability for working with children).
 
-- `backend/`: API, interview state machine, session persistence, evaluation
-- `frontend/`: voice interview UI, live transcript, speaking indicator, evaluation dashboard
+**Why this problem:** Human-led 10-minute screens do not scale; they are expensive, inconsistent, and hard to schedule. An automated **voice conversation** with **adaptive follow-ups** and a **transparent rubric** addresses the same decision surface—who deserves a human follow-up—without pretending to replace every nuance of a seasoned interviewer. The brief also stresses **candidate experience** (fair, welcoming, professional), which maps directly to product choices in this app: clear entry, visible timer, readable UI with light/dark themes, and a text fallback only when the microphone path genuinely fails.
 
-## Backend Setup
+**What we built in response:**
 
-1. Install dependencies:
-   - `cd backend`
-   - `npm install`
-2. Configure env:
-   - copy `.env.example` to `.env`
-   - set `MONGODB_URI`, `GROQ_API_KEY`, and optional `GROQ_MODEL`
-3. Start server:
-   - `npm run dev`
+| Brief expectation | What ships here |
+|-------------------|-----------------|
+| Short voice interview with the AI asking and listening | React client drives **TTS** for questions and **STT** for answers via the **browser Web Speech API** (no separate Whisper service in this repo; transcripts are sent to the API as text). Optional audio can still be attached for audit/debug paths on the backend. |
+| Natural, adaptive flow—not a rigid script | **Interview engine** plus optional **Groq** calls choose the next step: seed scenarios (math explanation / classroom situations), **one follow-up per main question**, and clarifying probes when answers are vague or non-substantive. |
+| Assessment beyond pass/fail | Final evaluation returns **dimension scores** (clarity, warmth, simplicity, patience, fluency, professionalism), narrative summary, strengths, improvements, and **evidence quotes** from the transcript where available. |
+| Operational view for hiring | **Recruiter dashboard** (password-protected) lists sessions and shows detail with transcript and **PASS/FAIL** derived from explicit rules (including hard fail on inappropriate language). |
 
-Backend runs on `http://localhost:5000`.
+The original prompt is explicit that the screen is **not** a deep math olympiad; it uses **teaching vignettes** (for example explaining ideas to a child, or responding when a student is stuck) to surface *how* someone teaches. This implementation leans into that: questions are framed around explanation and pedagogy, with scoring and policies tuned so toxic or evasive sessions cannot “game” high marks.
 
-## Frontend Setup
+---
 
-1. Install dependencies:
-   - `cd frontend`
-   - `npm install`
-2. Configure env:
-   - copy `.env.example` to `.env`
-3. Start app:
-   - `npm run dev`
+## Project summary
 
-Frontend runs on Vite default port and calls backend at `VITE_API_BASE_URL`.
+### What problem it solves
 
-## API Endpoints
+Hiring teams need a consistent first-pass signal on tutor quality: clarity, patience, simplicity, warmth, fluency, and professionalism. This app automates a short, timed interview so recruiters can review many candidates without running identical manual screens.
 
-- `POST /api/start-session`
-  - starts interview session and returns first AI question
-- `POST /api/process-response`
-  - processes transcript, handles edge cases, returns follow-up/next question, or completion
-- `GET /api/evaluation/:sessionId`
-  - returns final structured assessment after session completion
-- `GET /api/sessions`
-  - recruiter dashboard feed with latest sessions and risk flags
+### How it works (candidate flow)
 
-## State Machine
+1. **Candidate entry** — Name and email are collected before the interview starts.
+2. **Interview session** — Backend creates a MongoDB session and returns the first question (math-first ordering from seed scenarios).
+3. **Voice answer** — The browser captures speech (Web Speech API) and sends transcript + optional audio to the backend.
+4. **Microphone fallback** — If speech capture fails, a **text answer** path appears (only after failure), so the candidate can still complete the flow.
+5. **Adaptive follow-ups** — For each main question, the system asks **one** follow-up (clarifying if the answer is weak; otherwise approach-focused via LLM when configured).
+6. **Completion** — After **6 main questions** (with follow-ups between them) or on policy/timeout, the backend finalizes evaluation and marks the session complete.
 
-1. Start session
-2. AI asks question
-3. Candidate answers via mic
-4. Speech-to-text transcript sent to backend
-5. Response classified (quality, irrelevance, toxicity, confidence)
-6. Adaptive follow-up or next question generated
-7. Repeat for 3-5 questions
-8. End session
-9. Generate final evaluation JSON
+### How it works (recruiter flow)
 
-## Mandatory Edge Cases Implemented
+1. Recruiter opens the dashboard in the UI and enters the **recruiter password** (sent as `x-recruiter-password` on protected API routes).
+2. The dashboard lists recent sessions with status, question counts, toxicity/irrelevance counters, and a **PASS/FAIL remark** derived from evaluation rules.
+3. Session detail view shows transcript, violations, and final scores.
 
-- One-word / short answers -> asks for elaboration
-- Off-topic / nonsense answers -> warning, redirect, penalty tracking
-- Silence/no response -> timeout handling with retries
-- Low transcription confidence -> asks candidate to repeat
-- Fast/unclear speech proxy -> clarity/simplicity penalties from coherence classification
-- Nervous candidate protection -> gentle early behavior and moderated scoring prompt
-- Toxic language -> low/medium/high severity with escalating policy
-- Repeated irrelevance -> tracked via `irrelevantCount`, penalized
+### Interview rules (high level)
 
-## Example LLM Prompt Themes
+- **Question count:** **6** main questions (configured in backend `config`).
+- **Time limit:** **6 minutes** total interview window (backend enforces timeout; frontend sends `remainingMs` so the timer can pause while the AI is speaking without desyncing completion logic).
+- **Pass / fail:** **PASS** only if **every score metric is strictly greater than 5** *and* the candidate completed the required question attendance; otherwise **FAIL**. Inappropriate language forces **FAIL** regardless of other scores.
+- **Scoring behavior:** Non-toxic sessions are shaped into realistic bands; toxic sessions are **hard-capped low** so inappropriate interviews cannot receive neutral/high scores.
 
-- \"Explain fractions to a 9-year-old.\"
-- \"A student is stuck for 5 minutes; what do you do?\"
-- \"How do you adapt when a learner is losing confidence?\"
+### Tech stack
 
-## Strict Evaluation Output Format
+| Layer | Technology |
+|--------|------------|
+| Frontend | React 18, Vite 5, Web Speech API (STT + TTS), CSS theming |
+| Backend | Node.js (ESM), Express 4 |
+| Database | MongoDB via Mongoose 8 |
+| LLM | Groq Chat Completions API (optional; safe degradation if key missing) |
 
-```json
-{
-  "scores": {
-    "clarity": 8,
-    "patience": 9,
-    "simplicity": 8,
-    "warmth": 8,
-    "fluency": 7,
-    "professionalism": 9
-  },
-  "summary": "The candidate shows strong empathy and structured explanations with mostly clear communication.",
-  "strengths": [
-    "Explains concepts in child-friendly language",
-    "Uses calm and supportive reinforcement"
-  ],
-  "improvements": [
-    "Could tighten answer structure under pressure",
-    "Provide more concrete progress-check techniques"
-  ],
-  "evidence": [
-    {
-      "quote": "I would break fractions into pizza slices first.",
-      "reason": "Demonstrates simplicity and age-appropriate teaching."
-    }
-  ],
-  "flagged": false
-}
+### Repository layout
+
+- **`backend/`** — REST API, session model, interview engine (question progression, policies, live hints, final evaluation), audio upload storage under `uploads/`.
+- **`frontend/`** — Candidate interview UI, theme toggle, timer, recruiter dashboard views.
+
+---
+
+## Architecture (conceptual)
+
+```
+Browser (Vite/React)
+  ├─ Speech capture + optional audio (base64)
+  └─ HTTP JSON → Express /api/*
+
+Express
+  ├─ Session CRUD (MongoDB)
+  ├─ classifyResponse (Groq JSON rubric + rule-based guards)
+  ├─ chooseNextStep (seed questions + follow-up policy)
+  └─ finalizeSessionEvaluation (Groq JSON evaluation + post-processing)
+
+MongoDB
+  └─ Session documents (transcript, violations, evaluation, flags)
 ```
 
-## Notes for Production
+---
 
-- Add auth for recruiter-only access
-- Add background job queue for analytics
-- Add rate limits and audit logs
-- Add automated tests (unit + integration + E2E)
+## Local development
 
-## Included Bonus Features
+### Prerequisites
 
-- Real-time scoring hints (live score/risk signals returned by backend)
-- Recruiter dashboard (session overview table in frontend + API feed)
-- Candidate response audio playback in interview UI
+- Node.js 18+ recommended  
+- MongoDB instance (local or Atlas)
+
+### Backend
+
+```bash
+cd backend
+npm install
+```
+
+Create **`backend/.env`** (file is gitignored) with at least:
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `MONGODB_URI` | Yes | Mongo connection string |
+| `GROQ_API_KEY` | No | Enables LLM classification / questions / final eval |
+| `GROQ_MODEL` | No | Defaults to `llama-3.1-8b-instant` |
+| `RECRUITER_PASSWORD` | No | Protects recruiter routes (default exists in code for dev only) |
+| `PORT` | No | Defaults to `5000` locally; Render injects `PORT` |
+
+Start:
+
+```bash
+npm run dev
+```
+
+API base: `http://localhost:5000` — routes are mounted under **`/api`**.
+
+### Frontend
+
+```bash
+cd frontend
+npm install
+```
+
+Create **`frontend/.env`** (or Vercel env) with:
+
+| Variable | Description |
+|----------|-------------|
+| `VITE_API_BASE_URL` | Must include `/api`, e.g. `http://localhost:5000/api` |
+
+Start:
+
+```bash
+npm run dev
+```
+
+### Optional: background image
+
+The UI references **`/bg-image.png`**. Place your asset at:
+
+- `frontend/public/bg-image.png`
+
+Then rebuild / redeploy the frontend.
+
+---
+
+## API reference
+
+All JSON routes below are prefixed with **`/api`** (e.g. `POST /api/start-session`).
+
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
+| `POST` | `/start-session` | Public | Create session; returns `sessionId`, first question |
+| `POST` | `/process-response` | Public | Submit answer; returns next question, follow-up, or completion + evaluation |
+| `GET` | `/evaluation/:sessionId` | Public | Fetch evaluation for a **completed** session |
+| `GET` | `/sessions` | Recruiter header | List sessions for dashboard |
+| `GET` | `/sessions/:sessionId` | Recruiter header | Session detail (transcript, evaluation, etc.) |
+
+**Recruiter authentication:** send header:
+
+```http
+x-recruiter-password: <your RECRUITER_PASSWORD>
+```
+
+`process-response` accepts optional **`remainingMs`** (milliseconds left on client timer) so server timeout aligns with paused UI timers.
+
+---
+
+## Interview engine (behavioral overview)
+
+1. **Start session** — Persists candidate, initializes scores, stores transcript with first assistant question.
+2. **Classify response** — Rule-based guards (silence, toxicity, very short answers) plus optional Groq JSON classification.
+3. **Policy layer** — Handles re-asks, toxicity escalation, early termination on repeated abuse.
+4. **Next step** — Chooses follow-up vs next seed question; avoids repeating prior assistant prompts where possible.
+5. **Live hints** — Returns rolling `evaluation.scores` + risk counters for UI display.
+6. **Finalize** — Groq produces structured JSON evaluation; server applies business rules (pass/fail, toxic caps, attendance note).
+
+---
+
+## Deployment (Render + Vercel)
+
+### Backend (Render)
+
+- **Root directory:** `backend`
+- **Build:** `npm install`
+- **Start:** `npm start`
+- Set the same env vars as local (`MONGODB_URI`, `GROQ_API_KEY`, `RECRUITER_PASSWORD`, etc.)
+
+Health check URL pattern:
+
+- `https://<your-service>.onrender.com/health`
+
+### Frontend (Vercel)
+
+- **Root directory:** `frontend`
+- **Framework:** Vite  
+- **Build:** `npm run build`  
+- **Output:** `dist`
+
+Critical env var:
+
+- `VITE_API_BASE_URL=https://<your-render-service>.onrender.com/api`
+
+**Common mistake:** pointing `VITE_API_BASE_URL` at the domain **without** `/api` causes HTML 404 responses and JSON parse errors in the browser.
+
+---
+
+## Security & production notes
+
+- **Rotate** `RECRUITER_PASSWORD` for production; never ship default passwords publicly.
+- **CORS** is currently permissive (`cors()` default). For production hardening, restrict origins to your Vercel domain.
+- **Rate limiting** and **audit logs** are not included yet; add before high-traffic use.
+- **Audio uploads** are stored on the Render filesystem by default — ephemeral on free tiers. For durable storage, integrate S3-compatible object storage.
+
+---
+
+## Strict evaluation output shape
+
+Final evaluation JSON (conceptually) includes scores, narrative summary, strengths, improvements, evidence quotes, `flagged`, and `result` (`pass` | `fail` | `pending`) as produced by the backend pipeline.
+
+---
+
+## Roadmap ideas
+
+- JWT or session-based recruiter auth instead of shared password header  
+- Object storage for audio artifacts  
+- Automated tests (API integration + Playwright E2E)  
+- Per-tenant branding and configurable rubric weights  
+
+---
+
+## License
+
+Add your preferred license here if you open-source the repo.

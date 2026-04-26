@@ -32,6 +32,12 @@ export const processResponseApi = (payload) =>
     body: JSON.stringify(payload)
   });
 
+export const endSessionApi = (payload) =>
+  request("/end-session", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+
 export const fetchEvaluationApi = (sessionId) => request(`/evaluation/${sessionId}`);
 
 export const listSessionsApi = (recruiterPassword) =>

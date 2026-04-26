@@ -3,7 +3,14 @@ import ChatTimeline from "./components/ChatTimeline";
 import EvaluationCard from "./components/EvaluationCard";
 import { useAudioRecorder } from "./hooks/useAudioRecorder";
 import { useSpeechInterview } from "./hooks/useSpeechInterview";
-import { API_BASE, getSessionDetailsApi, listSessionsApi, processResponseApi, startSessionApi } from "./services/api";
+import {
+  API_BASE,
+  endSessionApi,
+  getSessionDetailsApi,
+  listSessionsApi,
+  processResponseApi,
+  startSessionApi
+} from "./services/api";
 
 const getMessage = (role, text) => ({
   id: `${role}-${Date.now()}-${Math.random()}`,
@@ -44,6 +51,17 @@ const formatScore = (value) => {
   return Number.isFinite(numeric) ? numeric.toFixed(1) : value;
 };
 
+const MOCK_QUESTIONS = [
+  "Teach a 10-year-old the idea of percentages using a real-life shopping example.",
+  "A student thinks negative numbers are 'not real'. How would you explain negatives with a thermometer or elevator?",
+  "Explain ratios using a simple recipe (e.g., juice concentrate and water).",
+  "A learner can’t read a bar graph. How would you teach them to interpret it step by step?",
+  "How would you introduce prime vs composite numbers using small objects or grouping?",
+  "A student mixes up mean and median. How would you explain the difference with a small dataset example?",
+  "Explain simple interest in a kid-friendly way with a savings jar example.",
+  "A student freezes when they see a word problem. What is your 3-step routine to start confidently?"
+];
+
 export default function App() {
   const INTERVIEW_LIMIT_MS = 6 * 60 * 1000;
   const [theme, setTheme] = useState(() => localStorage.getItem("theme") || "light");
@@ -60,7 +78,7 @@ export default function App() {
   const [liveHints, setLiveHints] = useState(null);
   const [recordings, setRecordings] = useState([]);
   const [dashboardRows, setDashboardRows] = useState([]);
-  const [view, setView] = useState("candidate-entry");
+  const [view, setView] = useState("home");
   const [selectedSession, setSelectedSession] = useState(null);
   const [loadingSessionDetails, setLoadingSessionDetails] = useState(false);
   const [recruiterPassword, setRecruiterPassword] = useState("");
@@ -68,6 +86,7 @@ export default function App() {
   const [micFallbackEnabled, setMicFallbackEnabled] = useState(false);
   const [textFallbackAnswer, setTextFallbackAnswer] = useState("");
   const [remainingMs, setRemainingMs] = useState(INTERVIEW_LIMIT_MS);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const { supported, listening, interim, error, listenOnce, speakText } = useSpeechInterview({
     silenceMs: 4000
@@ -179,6 +198,16 @@ export default function App() {
       }
 
       appendMessage("candidate", transcript);
+      if (audioCapture?.url) {
+        setRecordings((prev) => [
+          ...prev,
+          {
+            id: `recording-${Date.now()}-${Math.random()}`,
+            text: transcript,
+            url: audioCapture.url
+          }
+        ]);
+      }
 
       setStatus("processing");
       const response = await processResponseApi({
@@ -269,6 +298,32 @@ export default function App() {
     }
   };
 
+  const finishInterviewEarly = async () => {
+    if (!sessionId || processing || status === "completed") {
+      return;
+    }
+
+    setProcessing(true);
+    setBackendError("");
+    setStatus("processing");
+    try {
+      const response = await endSessionApi({ sessionId });
+      if (response.aiText) {
+        appendMessage("assistant", response.aiText);
+      }
+      if (response.liveHints) {
+        setLiveHints(response.liveHints);
+      }
+      setEvaluation(response.evaluation);
+      setStatus("completed");
+    } catch (e) {
+      setStatus("ready_for_response");
+      setBackendError(e.message || "Failed to submit interview.");
+    } finally {
+      setProcessing(false);
+    }
+  };
+
   const loadDashboard = async () => {
     try {
       setBackendError("");
@@ -302,16 +357,6 @@ export default function App() {
     } finally {
       setLoadingSessionDetails(false);
     }
-  };
-
-  const openRecruiterDashboard = async () => {
-    const enteredPassword = window.prompt("Enter recruiter dashboard password:");
-    if (!enteredPassword) {
-      return;
-    }
-
-    setRecruiterPassword(enteredPassword);
-    setRecruiterAuthenticated(true);
   };
 
   const switchToCandidateEntry = () => {
@@ -357,32 +402,183 @@ export default function App() {
     localStorage.setItem("theme", theme);
   }, [theme]);
 
+  const [role, setRole] = useState("");
+  const [recruiterPasswordInput, setRecruiterPasswordInput] = useState("");
+
+  const handleRoleSelection = (selectedRole) => {
+    setRole(selectedRole);
+    setBackendError("");
+    setEvaluation(null);
+    setLiveHints(null);
+    setSelectedSession(null);
+    setDashboardRows([]);
+    setRecruiterAuthenticated(false);
+    setRecruiterPassword("");
+    setRecruiterPasswordInput("");
+    setMenuOpen(false);
+    if (selectedRole === "candidate") {
+      setView("candidate-entry");
+      return;
+    }
+    if (selectedRole === "recruiter") {
+      setView("recruiter-login");
+    }
+  };
+
+  const handleRecruiterLogin = () => {
+    if (!recruiterPasswordInput) {
+      setBackendError("Password is required to continue as a recruiter.");
+      return;
+    }
+    setRecruiterPassword(recruiterPasswordInput);
+    setRecruiterAuthenticated(true);
+  };
+
   return (
     <main className="page">
-      <header className="hero">
-        <h1>AI Tutor Screener</h1>
-        <p>Voice interview to assess tutor soft skills in a realistic screening flow.</p>
-      </header>
+      {!role ? (
+        <>
+          <div className="topbar">
+            <button
+              type="button"
+              className="hamburger"
+              aria-label="Open menu"
+              aria-expanded={menuOpen}
+              onClick={() => setMenuOpen((prev) => !prev)}
+            >
+              <span />
+              <span />
+              <span />
+            </button>
+            <button className="secondary" type="button" onClick={toggleTheme}>
+              {theme === "light" ? "Dark Mode" : "Light Mode"}
+            </button>
+          </div>
 
-      <section className="panel controls">
-        <div className="toolbar">
-          <button className={view === "interview" ? "primary" : "secondary"} type="button" onClick={switchToInterview}>
-            Candidate View
-          </button>
-          <button
-            className={`${isDashboardView ? "primary" : "secondary"} recruiter-dashboard-btn`}
-            type="button"
-            onClick={openRecruiterDashboard}
-          >
-            Recruiter Dashboard
-          </button>
-          <button className="secondary" type="button" onClick={toggleTheme}>
-            {theme === "light" ? "Dark Mode" : "Light Mode"}
-          </button>
-        </div>
-      </section>
+          {menuOpen ? (
+            <>
+              <button type="button" className="menu-backdrop" aria-label="Close menu" onClick={() => setMenuOpen(false)} />
+              <nav className="menu-drawer" aria-label="Homepage menu">
+                <button
+                  type="button"
+                  className="menu-item"
+                  onClick={() => {
+                    setView("home");
+                    setMenuOpen(false);
+                  }}
+                >
+                  Home
+                </button>
+                <button
+                  type="button"
+                  className="menu-item"
+                  onClick={() => {
+                    setView("about");
+                    setMenuOpen(false);
+                  }}
+                >
+                  About Us
+                </button>
+                <button
+                  type="button"
+                  className="menu-item"
+                  onClick={() => {
+                    setView("guidelines");
+                    setMenuOpen(false);
+                  }}
+                >
+                  Interview Guidelines
+                </button>
+                <button
+                  type="button"
+                  className="menu-item"
+                  onClick={() => {
+                    setView("mock");
+                    setMenuOpen(false);
+                  }}
+                >
+                  Mock Questions
+                </button>
+              </nav>
+            </>
+          ) : null}
 
-      {view === "candidate-entry" ? (
+          {view === "home" ? (
+            <section className="panel controls">
+              <div className="role-selection">
+                <button className="primary" type="button" onClick={() => handleRoleSelection("candidate")}>
+                  Continue as Candidate
+                </button>
+                <button className="secondary" type="button" onClick={() => handleRoleSelection("recruiter")}>
+                  Continue as Recruiter
+                </button>
+              </div>
+            </section>
+          ) : null}
+
+          {view === "about" ? (
+            <section className="panel">
+              <h2>About Us</h2>
+              <ul className="bullet-list">
+                <li>We help tutoring teams screen candidates quickly with a consistent, fair voice interview.</li>
+                <li>We focus on the teaching skills that matter most: clarity, patience, warmth, and simplicity.</li>
+                <li>Recruiters get a structured summary with transcript history for transparent review.</li>
+                <li>Candidate experience comes first: short, respectful questions and clear timing.</li>
+              </ul>
+            </section>
+          ) : null}
+
+          {view === "guidelines" ? (
+            <section className="panel">
+              <h2>Interview Guidelines</h2>
+              <ul className="bullet-list">
+                <li>Speak clearly and at a steady pace. Use short sentences.</li>
+                <li>Give one concrete example (a mini scenario) for each answer.</li>
+                <li>Explain as if teaching an 8–12 year old: simple words, step-by-step.</li>
+                <li>If you make a mistake, correct yourself calmly and continue.</li>
+                <li>Keep it professional and respectful at all times.</li>
+              </ul>
+            </section>
+          ) : null}
+
+          {view === "mock" ? (
+            <section className="panel">
+              <h2>Mock Questions (Practice)</h2>
+              <p className="muted">
+                These are practice-only and are <strong>not</strong> used in the real interview.
+              </p>
+              <ol className="bullet-list">
+                {MOCK_QUESTIONS.map((q) => (
+                  <li key={q}>{q}</li>
+                ))}
+              </ol>
+            </section>
+          ) : null}
+        </>
+      ) : null}
+
+      {role && (
+        <section className="panel controls">
+          <div className="toolbar toolbar-equal">
+            <button
+              className="secondary"
+              type="button"
+              onClick={() => {
+                setRole("");
+                setView("home");
+                setMenuOpen(false);
+              }}
+            >
+              Back to Home
+            </button>
+            <button className="secondary" type="button" onClick={toggleTheme}>
+              {theme === "light" ? "Dark Mode" : "Light Mode"}
+            </button>
+          </div>
+        </section>
+      )}
+
+      {role === "candidate" && view === "candidate-entry" ? (
         <section className="panel controls">
           <h2>Candidate Details</h2>
           <p>Enter your name and email to begin the interview.</p>
@@ -407,17 +603,46 @@ export default function App() {
         </section>
       ) : null}
 
+      {role === "recruiter" && !recruiterAuthenticated && view === "recruiter-login" ? (
+        <section className="panel controls">
+          <h2>Recruiter Login</h2>
+          <p>Enter your password to access the recruiter dashboard.</p>
+          <div className="recruiter-form">
+            <input
+              type="password"
+              placeholder="Recruiter password"
+              value={recruiterPasswordInput}
+              onChange={(e) => setRecruiterPasswordInput(e.target.value)}
+            />
+          </div>
+          <button className="primary" type="button" onClick={handleRecruiterLogin}>
+            Continue to Dashboard
+          </button>
+          {backendError ? <p className="warning">{backendError}</p> : null}
+        </section>
+      ) : null}
+
       {view === "interview" ? (
         <>
           <section className="panel controls">
-            <button
-              className="secondary"
-              type="button"
-              onClick={submitAnswer}
-              disabled={!sessionId || status === "completed" || processing || !supported || isTimeUp}
-            >
-              {listening ? "Listening..." : "Answer via Microphone"}
-            </button>
+            <div className="toolbar">
+              <button
+                className="secondary"
+                type="button"
+                onClick={submitAnswer}
+                disabled={!sessionId || status === "completed" || processing || !supported || isTimeUp}
+              >
+                {listening ? "Listening..." : "Answer via Microphone"}
+              </button>
+              <button
+                className="primary"
+                type="button"
+                onClick={finishInterviewEarly}
+                disabled={!sessionId || status === "completed" || processing}
+              >
+                Finish &amp; Submit Interview
+              </button>
+            </div>
 
             <div className="meta">
               <span>Status: {status}</span>

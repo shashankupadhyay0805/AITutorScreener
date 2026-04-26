@@ -1,6 +1,7 @@
 import express from "express";
 import { config } from "../config.js";
 import {
+  endSession,
   getEvaluation,
   getSessionDetails,
   listSessions,
@@ -21,6 +22,7 @@ const requireRecruiterPassword = (req, res, next) => {
 
 router.post("/start-session", startSession);
 router.post("/process-response", processResponse);
+router.post("/end-session", endSession);
 router.get("/evaluation/:sessionId", getEvaluation);
 router.get("/sessions", requireRecruiterPassword, listSessions);
 router.get("/sessions/:sessionId", requireRecruiterPassword, getSessionDetails);
